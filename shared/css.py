@@ -35,21 +35,13 @@ def inject_css():
     /* Hide branding */
     #MainMenu, footer, header { visibility: hidden; }
 
-    /* Chat — compact on mobile */
+    /* Chat — consistent sizing */
     [data-testid="stChatMessage"] { border-radius: 12px; }
     [data-testid="stChatMessage"] p,
     [data-testid="stChatMessage"] li,
     [data-testid="stChatMessage"] span {
-        font-size: 0.85rem !important;
-        line-height: 1.45 !important;
-    }
-    @media (max-width: 768px) {
-        [data-testid="stChatMessage"] p,
-        [data-testid="stChatMessage"] li,
-        [data-testid="stChatMessage"] span {
-            font-size: 0.8rem !important;
-        }
-        [data-testid="stChatMessage"] { padding: 8px 10px; }
+        font-size: 0.88rem;
+        line-height: 1.5;
     }
 
     /* Category cards — thicker severity stripes */

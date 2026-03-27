@@ -377,20 +377,26 @@ def home_page():
         st.session_state.dashboard_chat_history = []
         st.session_state.dashboard_chat_month = selected_month
 
-    # Quick action buttons (merged from AI Advisor tab)
+    # Quick action buttons — 2x2 grid for mobile
     st.divider()
     st.markdown("#### 💬 Ask Your Advisor")
-    _qa1, _qa2, _qa3, _qa4 = st.columns(4)
-    quick = {
+    _quick_actions = {
         "Savings Check": "Am I on track to meet my savings target? Show me the numbers.",
         "Save This Week": "What are 3 specific things I can do THIS WEEK to save money?",
         "Spending Check": "Compare this month to our average. What's over budget?",
         "Where to Cut": "Where are the easiest $300/month in cuts?",
     }
-    _quick_items = list(quick.items())
-    for i, col in enumerate([_qa1, _qa2, _qa3, _qa4]):
-        if col.button(_quick_items[i][0], use_container_width=True, key=f"quick_{i}"):
-            st.session_state.dashboard_chat_history.append({"role": "user", "content": _quick_items[i][1]})
+
+    def _ask_quick(question):
+        st.session_state.dashboard_chat_history.append({"role": "user", "content": question})
+
+    _qi = list(_quick_actions.items())
+    _r1c1, _r1c2 = st.columns(2)
+    _r1c1.button(_qi[0][0], use_container_width=True, key="quick_0", on_click=_ask_quick, args=(_qi[0][1],))
+    _r1c2.button(_qi[1][0], use_container_width=True, key="quick_1", on_click=_ask_quick, args=(_qi[1][1],))
+    _r2c1, _r2c2 = st.columns(2)
+    _r2c1.button(_qi[2][0], use_container_width=True, key="quick_2", on_click=_ask_quick, args=(_qi[2][1],))
+    _r2c2.button(_qi[3][0], use_container_width=True, key="quick_3", on_click=_ask_quick, args=(_qi[3][1],))
 
     # Display chat history
     for msg in st.session_state.dashboard_chat_history:
@@ -406,7 +412,6 @@ def home_page():
 
     if needs_response:
         pending_msg = st.session_state.dashboard_chat_history[-1]["content"]
-        # Build comprehensive context
         _all_txns = conn.execute(
             """SELECT date, description, amount, category FROM transactions
                WHERE strftime('%Y-%m', date) = ? ORDER BY category, date""",
@@ -466,11 +471,12 @@ def home_page():
             with st.chat_message("assistant"):
                 st.warning("Set your Anthropic API key in Settings to use the chat.")
 
-    _chat_col, _send_col = st.columns([5, 1])
-    dash_question = _chat_col.text_input("Ask about spending or savings...", key="dashboard_chat_input", label_visibility="collapsed", placeholder="Ask about spending or savings...")
-    if _send_col.button("Send", key="chat_send", use_container_width=True) and dash_question:
-        st.session_state.dashboard_chat_history.append({"role": "user", "content": dash_question})
-        st.rerun()
+    # Chat input — use form so Enter key submits and layout stays inline
+    with st.form("chat_form", clear_on_submit=True):
+        dash_question = st.text_input("Ask about spending or savings...", label_visibility="collapsed", placeholder="Ask about spending or savings...")
+        if st.form_submit_button("Send", use_container_width=True) and dash_question:
+            st.session_state.dashboard_chat_history.append({"role": "user", "content": dash_question})
+            st.rerun()
 
     # ── 7. CATEGORY CARDS (severity sorted, collapsed) ────────────────
     st.divider()
