@@ -106,7 +106,18 @@ class TursoConnection:
 
         rows = []
         for raw_row in raw_rows:
-            values = [cell.get("value") for cell in raw_row]
+            values = []
+            for cell in raw_row:
+                val = cell.get("value")
+                typ = cell.get("type", "")
+                if val is None or typ == "null":
+                    values.append(None)
+                elif typ == "integer":
+                    values.append(int(val))
+                elif typ == "float":
+                    values.append(float(val))
+                else:
+                    values.append(val)
             rows.append(TursoRow(cols, values))
 
         return rows, cols, affected, last_id
