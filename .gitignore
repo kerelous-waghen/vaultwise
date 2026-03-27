@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.*
+
+# Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.backup*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Streamlit secrets (local)
+.streamlit/secrets.toml
+
+# Logs
+*.log
+
+# Sensitive tokens
+monarchRecoveryTokens.txt
+
+# Claude Code local config
+.claude/

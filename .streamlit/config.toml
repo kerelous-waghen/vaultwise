@@ -1,0 +1,20 @@
+[server]
+enableStaticServing = true
+maxUploadSize = 50
+
+[theme]
+# Clean modern finance look — light background with accent colors
+base = "light"
+primaryColor = "#0066FF"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F7FA"
+textColor = "#1A1A2E"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+# Authentication — restrict access to family emails only
+# Allowed emails are configured in Streamlit Cloud dashboard
+[auth]
+enabled = true
