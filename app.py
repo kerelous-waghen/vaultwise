@@ -596,16 +596,19 @@ if page == "Dashboard":
                 _recovery = _act.get("recovery", 0)
                 _cumulative_recovery += _recovery
                 _gap_remaining = max(_over_budget - _cumulative_recovery, 0)
-                _pct_closed = min(_cumulative_recovery / _over_budget * 100, 100) if _over_budget > 0 else 0
+                _pct_remaining = max(_gap_remaining / _over_budget * 100, 0) if _over_budget > 0 else 0
+                _bar_color = "#ef4444" if _gap_remaining > 0 else "#22c55e"
+                _gap_label = f"{_D}{_gap_remaining:,.0f} left" if _gap_remaining > 0 else "Closed!"
+                _recovery_text = f"Saves {_D}{_act.get('recovery', 0):,.0f}"
 
                 _act_html = (
                     f'<div style="background:white;border:1px solid #e5e7eb;border-radius:10px;padding:12px 16px;margin-bottom:8px;">'
                     f'<div style="font-weight:700;color:#1a1a2e;">{_act.get("rank", "")}. {_act.get("category", "")} — {_act.get("merchant", "")}</div>'
                     f'<div style="color:#4b5563;margin:6px 0;">{_act.get("action", "")}</div>'
+                    f'<div style="display:flex;justify-content:space-between;font-size:0.82rem;color:#6b7280;margin-bottom:4px;"><span>{_recovery_text}</span><span>{_gap_label}</span></div>'
                     f'<div style="display:flex;align-items:center;gap:10px;">'
                     f'<div style="flex:1;height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;">'
-                    f'<div style="height:100%;width:{_pct_closed:.0f}%;background:#22c55e;border-radius:4px;"></div></div>'
-                    f'<span style="font-size:0.85rem;color:#6b7280;">Gap: {_D}{_gap_remaining:,.0f}</span>'
+                    f'<div style="height:100%;width:{_pct_remaining:.0f}%;background:{_bar_color};border-radius:4px;transition:width 0.3s;"></div></div>'
                     f'</div></div>'
                 )
                 st.markdown(_act_html, unsafe_allow_html=True)
