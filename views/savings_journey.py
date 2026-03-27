@@ -17,6 +17,7 @@ from shared.state import get_conn, get_advisor, escape_dollars
 
 
 def savings_journey_page():
+    """Render the Savings Journey page: current status, forecasts, goals, and what-if scenarios."""
     st.markdown("## Savings Journey")
     conn = get_conn()
 
@@ -37,8 +38,11 @@ def savings_journey_page():
     _r2c2.metric("Months Analyzed", savings_status["months_analyzed"])
 
     df = models.project_cash_flow()
-    st.plotly_chart(make_monthly_net_chart(df, height=300), use_container_width=True, config={"displayModeBar": False})
-    st.plotly_chart(make_cumulative_chart(df, height=370), use_container_width=True, config={"displayModeBar": False})
+    _chart_tab1, _chart_tab2 = st.tabs(["Monthly Net", "Cumulative Savings"])
+    with _chart_tab1:
+        st.plotly_chart(make_monthly_net_chart(df, height=300), use_container_width=True, config={"displayModeBar": False})
+    with _chart_tab2:
+        st.plotly_chart(make_cumulative_chart(df, height=370), use_container_width=True, config={"displayModeBar": False})
 
     st.divider()
 
@@ -46,11 +50,10 @@ def savings_journey_page():
     st.markdown("### Where You're Going")
     st.caption("Prophet ML forecasts based on your spending history.")
 
-    forecast_conn = get_conn()
     try:
-        prophet_result = analytics.prophet_forecast_total_spending(forecast_conn, periods=6)
+        prophet_result = analytics.prophet_forecast_total_spending(conn, periods=6)
         if prophet_result:
-            hist_rows = forecast_conn.execute("""
+            hist_rows = conn.execute("""
                 SELECT strftime('%Y-%m', date) as month,
                        SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) as spending
                 FROM transactions GROUP BY month ORDER BY month
@@ -88,9 +91,16 @@ def savings_journey_page():
                 hovertemplate="<b>%{x}</b><br>Forecast: $%{y:,.0f}<extra></extra>",
             ))
 
-            avg = prophet_result["historical_avg"]
-            fig.add_hline(y=avg, line_dash="dot", line_color=PALETTE["gray"],
-                         annotation_text=f"Historical avg: ${avg:,.0f}", annotation_font_size=9)
+            # Annotate next month prediction directly on the chart
+            if prophet_result["forecast"]:
+                _next = prophet_result["forecast"][0]
+                fig.add_annotation(
+                    x=_next["month"], y=_next["predicted"],
+                    text=f"${_next['predicted']:,.0f}",
+                    showarrow=True, arrowhead=2, arrowcolor=PALETTE["purple"],
+                    font=dict(size=11, color=PALETTE["purple"], weight="bold"),
+                    ax=0, ay=-30,
+                )
 
             fig.update_layout(**CHART_LAYOUT, height=360,
                              legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=10),
@@ -128,8 +138,7 @@ def savings_journey_page():
         else:
             st.info("Need at least 4 months of data for Prophet forecasting. Upload more statements.")
     except Exception as e:
-        st.caption(f"Prophet forecast unavailable: {e}")
-    forecast_conn.close()
+        st.caption("Prophet forecast unavailable. Upload more data or try again later.")
 
     st.divider()
 
@@ -137,15 +146,14 @@ def savings_journey_page():
     st.markdown("### Your Goals")
     st.caption("Track progress toward your financial objectives.")
 
-    goals_conn = get_conn()
-    objectives = database.get_active_objectives(goals_conn)
+    objectives = database.get_active_objectives(conn)
 
     if objectives:
         for obj in objectives:
             target = obj["target"] or 0
             if target > 0:
                 # BUG FIX #1: Pull actual current_amount instead of hardcoded 0
-                obj_history = database.get_objective_history(goals_conn, obj["objective_id"])
+                obj_history = database.get_objective_history(conn, obj["objective_id"])
                 if obj_history:
                     current = obj_history[-1]["current_amount"]
                 else:
@@ -172,7 +180,7 @@ def savings_journey_page():
                         key=f"goal_update_{obj['objective_id']}"
                     )
                     if st.button("Save", key=f"goal_save_{obj['objective_id']}"):
-                        database.snapshot_objective(goals_conn, obj["objective_id"], new_amount, date.today().isoformat())
+                        database.snapshot_objective(conn, obj["objective_id"], new_amount, date.today().isoformat())
                         st.success("Progress updated!")
                         st.rerun()
             else:
@@ -187,10 +195,9 @@ def savings_journey_page():
         deadline = st.date_input("Deadline", value=None)
         if st.form_submit_button("Create", type="primary") and label:
             oid = label.lower().replace(" ", "_")[:30]
-            database.create_objective(goals_conn, oid, label, target=target if target > 0 else None,
+            database.create_objective(conn, oid, label, target=target if target > 0 else None,
                                      deadline=deadline.isoformat() if deadline else None)
             st.rerun()
-    goals_conn.close()
 
     st.divider()
 
