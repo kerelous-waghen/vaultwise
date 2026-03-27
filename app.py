@@ -60,6 +60,12 @@ st.markdown("""<style>
     /* Sidebar */
     section[data-testid="stSidebar"] > div { padding-top: 1rem; }
 
+    /* Top mobile nav — hidden on desktop where sidebar is visible */
+    @media (min-width: 769px) {
+        div[data-testid="stHorizontalBlock"]:has([data-testid="stWidgetLabel"]) ~ div[data-testid="stRadio"]:first-of-type,
+        .main > .block-container > div:first-child > div[data-testid="stRadio"][aria-label="Navigate"] { display: none; }
+    }
+
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 4px; background: #f8f9fb; padding: 4px; border-radius: 10px; }
     .stTabs [data-baseweb="tab"] {
@@ -265,8 +271,23 @@ with st.sidebar:
         "Transactions",
         "Insights & Advisor",
         "Settings",
-    ], label_visibility="collapsed")
+    ], label_visibility="collapsed", key="nav_sidebar")
 
+# ── Mobile top navigation (visible when sidebar is collapsed) ─────────
+_nav_options = ["Dashboard", "Transactions", "Insights & Advisor", "Settings"]
+_mobile_nav = st.radio(
+    "Navigate",
+    _nav_options,
+    index=_nav_options.index(page),
+    horizontal=True,
+    label_visibility="collapsed",
+    key="nav_top",
+)
+# Sync: if mobile nav changed, update sidebar to match
+if _mobile_nav != page:
+    st.session_state.nav_sidebar = _mobile_nav
+    st.rerun()
+page = _mobile_nav
 
 # ═══════════════════════════════════════════════════════════════════════════
 # HELPER: Build clean charts
