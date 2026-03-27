@@ -211,7 +211,7 @@ def home_page():
 
     if _gap_data and "actions" in _gap_data:
         if _over_budget > 0:
-            st.markdown(f"#### 🔴 Close Your ${_over_budget:,.0f} Gap — Do These 3 Things")
+            st.markdown(f"#### 🔴 You're ${_over_budget:,.0f} over budget — here's how to recover")
         else:
             st.markdown("#### 💡 Your Top Opportunities This Month")
 
@@ -222,13 +222,13 @@ def home_page():
 
             if _over_budget > 0:
                 _gap_remaining = max(_over_budget - _cumulative_recovery, 0)
-                _pct_remaining = max(_gap_remaining / _over_budget * 100, 0)
-                _bar_color = "#ef4444" if _gap_remaining > 0 else "#22c55e"
-                _gap_label = f"${_gap_remaining:,.0f} left" if _gap_remaining > 0 else "Closed!"
+                _pct_recovered = min(_cumulative_recovery / _over_budget * 100, 100) if _over_budget > 0 else 100
+                _bar_color = "#22c55e" if _gap_remaining == 0 else "#3b82f6"
+                _gap_label = f"Gap: ${_gap_remaining:,.0f} remaining" if _gap_remaining > 0 else "Gap closed ✅"
             else:
                 _bar_color = "#22c55e"
                 _gap_label = f"+${_cumulative_recovery:,.0f} potential"
-                _pct_remaining = 0
+                _pct_recovered = min(_cumulative_recovery / max(_gap_amount, 1) * 100, 100)
 
             _recovery_text = f"Saves ${_act.get('recovery', 0):,.0f}"
             _act_html = (
@@ -238,7 +238,7 @@ def home_page():
                 f'<div style="display:flex;justify-content:space-between;font-size:0.82rem;color:#6b7280;margin-bottom:4px;"><span>{_recovery_text}</span><span>{_gap_label}</span></div>'
                 f'<div style="display:flex;align-items:center;gap:10px;">'
                 f'<div style="flex:1;height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;">'
-                f'<div style="height:100%;width:{_pct_remaining:.0f}%;background:{_bar_color};border-radius:4px;transition:width 0.3s;"></div></div>'
+                f'<div style="height:100%;width:{_pct_recovered:.0f}%;background:{_bar_color};border-radius:4px;transition:width 0.3s;"></div></div>'
                 f'</div></div>'
             )
             st.markdown(_act_html, unsafe_allow_html=True)
