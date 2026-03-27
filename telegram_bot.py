@@ -149,102 +149,156 @@ class TelegramReporter:
         return success
 
 
-def format_weekly_report_html(report_data: dict, cached_analytics: dict = None,
-                              red_cards: list = None, claude_actions: dict = None) -> str:
-    """Format action-focused Telegram report. Prioritizes specific actions over information."""
+def format_weekly_report_html(report_data: dict, **_kwargs) -> str:
+    """Data-driven Telegram report mirroring the dashboard's exact metrics."""
     d = report_data
-    week_start = d.get("week_start", "?")
-    week_end = d.get("report_date", "?")
-    total_spent = abs(d.get("week_spending_total", 0))
-    txn_count = d.get("week_txn_count", 0)
-    red_cards = red_cards or []
-    claude_actions = claude_actions or {}
+    from datetime import date
+    from calendar import month_name
 
-    # Savings target
-    import database as _db
-    import os as _os
-    _db_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "data", "expenses.db")
-    try:
-        _conn = _db.get_connection(_db_path)
-        savings_target = int(_db.get_setting(_conn, "monthly_savings_target", "1000"))
-        _conn.close()
-    except Exception:
-        savings_target = 1000
+    today = date.fromisoformat(d["report_date"])
+    month_label = f"{month_name[today.month]} {today.year}"
 
-    # MTD spending for scorecard
-    mtd_total = abs(d.get("mtd_total", total_spent))
+    # Core metrics (computed in gather_report_data using same math as dashboard)
+    income = d.get("monthly_income", 0)
+    fixed = d.get("effective_fixed", 0)
+    disc = d.get("txn_discretionary", 0)
+    saved = d.get("saved", 0)
+    target = d.get("savings_target", 2000)
+    rate = d.get("savings_rate", 0)
+    days_left = d.get("days_left", 0)
+    daily = d.get("daily_budget", 0)
+    gap = saved - target
+
+    # Status (same logic as home.py)
+    if saved >= target:
+        status = f"✅ ON TRACK — ${gap:,.0f} above goal"
+    elif saved > 0:
+        status = f"⚠️ AT RISK — ${abs(gap):,.0f} short of target"
+    else:
+        status = f"🔴 OVER BUDGET — ${abs(saved):,.0f} in the red"
+
+    target_rate = (target / income * 100) if income > 0 else 0
 
     lines = [
-        f"<b>💰 Budget Report</b>  {week_start} → {week_end}",
+        f"<b>💰 VaultWise — {month_label}</b>",
         "",
+        f"<b>🎯 SAVINGS: {status}</b>",
+        f"  Saved: <b>${saved:,.0f}</b> (target: ${target:,})",
+        f"  Savings rate: <b>{rate:.0f}%</b> (target: {target_rate:.0f}%)",
     ]
-
-    # ── SAVINGS SCORECARD ─────────────────────────────────────────
-    lines.append("<b>🎯 SAVINGS SCORECARD</b>")
-    lines.append(f"  Target: <b>${savings_target:,}/mo</b>")
-    lines.append(f"  This month: <b>${mtd_total:,.0f}</b> spent ({txn_count} transactions)")
-    if mtd_total > 0:
-        status = "✅ ON TRACK" if mtd_total < savings_target * 4 else ("⚠️ AT RISK" if mtd_total < savings_target * 5 else "🔴 OVER BUDGET")
-        lines.append(f"  Status: <b>{status}</b>")
+    if days_left > 0:
+        if daily > 0:
+            lines.append(f"  Daily budget: <b>${daily:,.0f}/day</b> for {days_left} days")
+        else:
+            lines.append(f"  🛑 FREEZE spending for {days_left} days")
     lines.append("")
 
-    # ── TOP ACTIONS (from Claude preventive actions, ranked by impact) ──
-    actions_list = []
-    for cat, action in claude_actions.items():
-        if isinstance(action, dict) and action.get("severity") in ("critical", "warning"):
-            impact = action.get("impact", 0)
-            actions_list.append((cat, action, impact))
-    actions_list.sort(key=lambda x: x[2], reverse=True)
+    # ── THE MATH ──────────────────────────────────────────────────
+    lines.append("<b>💵 THE MATH</b>")
+    lines.append(f"  Income: ${income:,.0f}")
+    lines.append(f"  Fixed bills: ${fixed:,.0f}")
+    lines.append(f"  Discretionary: ${disc:,.0f}")
+    gap_text = f"+${gap:,.0f} above target" if gap >= 0 else f"${gap:,.0f} vs target"
+    lines.append(f"  <b>Saved: ${saved:,.0f}</b> ({gap_text})")
+    lines.append("")
 
-    if actions_list:
-        lines.append(f"<b>🔴 TOP {min(len(actions_list), 3)} ACTIONS (by savings impact)</b>")
-        lines.append("")
-        for i, (cat, action, impact) in enumerate(actions_list[:3], 1):
-            headline = action.get("headline", cat)
-            action_text = action.get("action", "Review spending in this category")
-            lines.append(f"  <b>{i}. {headline}</b>")
-            lines.append(f"  → {action_text}")
-            if impact:
-                lines.append(f"  💵 Saves: <b>${impact:,.0f}/mo</b> toward your ${savings_target:,} target")
-            lines.append("")
-    elif red_cards:
-        lines.append("<b>🔴 NEEDS ATTENTION</b>")
-        lines.append("")
-        for rc in red_cards[:3]:
-            lines.append(f"  <b>{rc.get('category', '')}</b>: ${rc.get('spent', 0):,.0f} (+{rc.get('pct_above', 0):.0f}% above avg)")
-        lines.append("")
+    # ── CATEGORIES BY SEVERITY ────────────────────────────────────
+    trends = d.get("trends", {})
+    budget_statuses = d.get("budget_statuses", {})
+    breakdown = d.get("mtd_breakdown", [])
 
-    # ── WINS (brief celebration) ──────────────────────────────────
+    dir_icons = {"rising": "↑", "falling": "↓", "stable": "→"}
+
+    critical = []
     wins = []
-    for cat, action in claude_actions.items():
-        if isinstance(action, dict) and action.get("severity") == "good":
-            wins.append((cat, action))
-    if not wins and cached_analytics:
-        for w in cached_analytics.get("spending_wins", [])[:3]:
-            wins.append((w["category"], {"headline": f"saving ${w['saved']:,.0f}/mo vs avg"}))
+    watch = []
+
+    for cat_data in sorted(breakdown, key=lambda c: abs(c.get("total", 0)), reverse=True):
+        cat = cat_data.get("category", "")
+        spent = abs(cat_data.get("total", 0))
+        if spent < 10:
+            continue
+
+        trend = trends.get(cat)
+        bs = budget_statuses.get(cat)
+        if not trend:
+            continue
+
+        # Handle both dict (cached) and TrendResult (dataclass) formats
+        if isinstance(trend, dict):
+            mean = trend.get("mean", 0)
+            pct = trend.get("pct_vs_mean", 0)
+            direction = dir_icons.get(trend.get("direction", "stable"), "→")
+            severity = trend.get("severity", "normal")
+        else:
+            mean = trend.mean
+            pct = trend.pct_vs_mean
+            direction = dir_icons.get(trend.direction, "→")
+            severity = trend.severity
+
+        if pct > 0:
+            pct_text = f"+{pct:.0f}% vs ${mean:,.0f} avg"
+        else:
+            pct_text = f"{pct:.0f}% vs ${mean:,.0f} avg"
+
+        entry = f"  • {cat}: <b>${spent:,.0f}</b> ({pct_text}) {direction}"
+
+        bs_status = (bs.status if hasattr(bs, "status") else bs.get("status", "")) if bs else ""
+        if severity in ("critical", "warning") or bs_status in ("over", "elevated"):
+            critical.append(entry)
+        elif pct < -15 and mean > 50:
+            saving = mean - spent
+            wins.append(f"  • {cat}: <b>${spent:,.0f}</b> ({pct_text}) — saving ${saving:,.0f}/mo")
+        elif pct > 5:
+            watch.append(entry)
+
+    if critical:
+        lines.append("<b>🔴 NEEDS ATTENTION</b>")
+        lines.extend(critical[:5])
+        lines.append("")
 
     if wins:
-        lines.append("<b>💪 WINS</b>")
-        for cat, action in wins[:3]:
-            headline = action.get("headline", cat) if isinstance(action, dict) else str(action)
-            lines.append(f"  ✅ {headline}")
+        lines.append("<b>💪 BIG WINS</b>")
+        lines.extend(wins[:5])
         lines.append("")
 
-    # ── ACTION CHECKLIST ──────────────────────────────────────────
-    action_items = d.get("action_items", [])
-    if action_items:
-        lines.append("<b>📋 DO THESE THIS WEEK</b>")
-        for item in action_items[:3]:
-            lines.append(f"  □ {item}")
+    if watch:
+        lines.append("<b>⚠️ WATCH</b>")
+        lines.extend(watch[:3])
         lines.append("")
-    elif actions_list:
-        lines.append("<b>📋 DO THESE THIS WEEK</b>")
-        for i, (cat, action, impact) in enumerate(actions_list[:3], 1):
-            forecast_note = action.get("forecast_note", "")
-            if forecast_note:
-                lines.append(f"  □ {forecast_note}")
-            else:
-                lines.append(f"  □ Review {cat} spending — saves ${impact:,.0f}/mo")
+
+    # ── THIS WEEK ─────────────────────────────────────────────────
+    week_spent = abs(d.get("week_spending_total", 0))
+    week_count = d.get("week_txn_count", 0)
+    if week_spent > 0:
+        lines.append(f"<b>📋 THIS WEEK:</b> ${week_spent:,.0f} spent ({week_count} transactions)")
+        top_merchants = d.get("top_merchants", [])
+        if top_merchants:
+            merch_parts = []
+            for m in top_merchants[:5]:
+                name = m.get("description", "?")
+                total = abs(m.get("total_spent", 0) or m.get("total", 0))
+                if total > 0:
+                    merch_parts.append(f"{name} ${total:,.0f}")
+            if merch_parts:
+                lines.append(f"  Top: {', '.join(merch_parts)}")
         lines.append("")
+
+    # ── BOTTOM LINE ───────────────────────────────────────────────
+    lines.append("<b>🔥 BOTTOM LINE</b>")
+    if saved >= target:
+        lines.append(f"${saved:,.0f} saved this month — {rate:.0f}% savings rate. Keep it up.")
+    elif saved > 0:
+        lines.append(f"Positive savings (${saved:,.0f}) but ${abs(gap):,.0f} short of your ${target:,} target.")
+    else:
+        lines.append(f"Spending exceeds income by ${abs(saved):,.0f}. Review categories flagged above.")
+
+    # Flag recurring waste
+    for cat_data in breakdown:
+        cat = cat_data.get("category", "")
+        if "interest" in cat.lower() or "fees" in cat.lower():
+            amt = abs(cat_data.get("total", 0))
+            if amt > 10:
+                lines.append(f"  💸 {cat}: ${amt:,.0f}/mo — priority to eliminate")
 
     return "\n".join(lines)

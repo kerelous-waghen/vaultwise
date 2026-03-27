@@ -6,10 +6,9 @@ Can be triggered by: GitHub Actions, cron, launchd, or manual run.
 Usage:
     python send_weekly_report.py
     python send_weekly_report.py --telegram-only
-    python send_weekly_report.py --email-only
+    python send_weekly_report.py --dry-run
 
 Environment variables required:
-    ANTHROPIC_API_KEY    — for Claude API
     TELEGRAM_BOT_TOKEN   — Telegram bot token from @BotFather
     TELEGRAM_CHAT_ID     — Your Telegram chat ID
 
@@ -19,6 +18,7 @@ Optional:
 
 import argparse
 import os
+import re
 import sys
 from datetime import date
 
@@ -28,9 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import database
 import config
 import reports
-import spending_intelligence
 import chart_generator
-from claude_advisor import ClaudeAdvisor
 from telegram_bot import TelegramReporter, format_weekly_report_html
 
 
@@ -61,36 +59,12 @@ def main():
         conn.close()
         sys.exit(0)
 
-    # Check API key
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        # Try loading from DB settings
-        api_key = database.get_setting(conn, "anthropic_api_key")
-    if not api_key:
-        print("❌ ANTHROPIC_API_KEY not set")
-        sys.exit(1)
-
-    # Build report data
+    # Build report data (includes dashboard-grade metrics: income, savings, trends)
     print("📝 Gathering report data...")
     report_data = reports.gather_report_data(conn)
 
-    # Add tactical context
-    print("🧠 Computing spending intelligence...")
-    tactical = spending_intelligence.build_tactical_context(conn)
-    report_data["budget_status"] = tactical.get("budget_status", [])
-    report_data["savings_tips"] = tactical.get("savings_tips", [])
-    report_data["last_week_total"] = tactical.get("last_week", {}).get("total")
-
-    # Generate Claude's report
-    print("🤖 Claude is writing the report...")
-    advisor = ClaudeAdvisor(api_key=api_key)
-    claude_report = advisor.generate_weekly_report(
-        week_transactions=report_data["week_transactions"],
-        monthly_context=report_data["mtd_summary"],
-        objective_progress=report_data["objective_progress"],
-        alerts=report_data["alerts"],
-    )
-    report_data["action_items"] = claude_report.get("action_items", [])
+    # Format the report (data-driven, no Claude needed)
+    summary_text = format_weekly_report_html(report_data)
 
     # Generate charts
     print("📊 Generating charts...")
@@ -133,18 +107,19 @@ def main():
         print(f"⚠️  Chart generation failed: {e}")
 
     # Save report to DB
+    plain_text = re.sub(r'<[^>]+>', '', summary_text)
     db_report_id = database.save_weekly_report(
         conn,
         report_date=date.today().isoformat(),
-        subject=claude_report.get("subject", "Weekly Budget Report"),
-        html_body=claude_report.get("html_body", ""),
-        plain_text=claude_report.get("plain_text", ""),
+        subject=f"VaultWise Report — {date.today().strftime('%B %Y')}",
+        html_body=summary_text,
+        plain_text=plain_text,
     )
     print(f"💾 Report saved to database (ID: {db_report_id})")
 
     if args.dry_run:
         print("\n🏁 Dry run complete. Report generated but not sent.")
-        print(f"\nReport preview:\n{claude_report.get('plain_text', '')[:500]}")
+        print(f"\nReport preview:\n{plain_text}")
         conn.close()
         return
 
@@ -159,7 +134,6 @@ def main():
             print("📱 Sending via Telegram...")
             try:
                 telegram = TelegramReporter(bot_token, chat_id)
-                summary_text = format_weekly_report_html(report_data)
                 success = telegram.send_weekly_report(summary_text, charts)
                 if success:
                     print("✅ Telegram report sent!")
@@ -176,7 +150,12 @@ def main():
         if os.environ.get("SMTP_HOST"):
             print("📧 Sending via email...")
             try:
-                success = reports.send_email_report(claude_report)
+                email_report = {
+                    "subject": f"VaultWise Report — {date.today().strftime('%B %Y')}",
+                    "html_body": summary_text,
+                    "plain_text": plain_text,
+                }
+                success = reports.send_email_report(email_report)
                 if success:
                     print("✅ Email sent!")
                     sent_any = True

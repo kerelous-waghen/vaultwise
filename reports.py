@@ -89,6 +89,67 @@ def gather_report_data(conn, report_date: Optional[date] = None, period: str = "
     # MTD total for scorecard
     mtd_total = sum(abs(c.get("total", 0)) for c in mtd_breakdown) if mtd_breakdown else 0
 
+    # ── Dashboard-grade metrics (same math as home.py) ────────────
+    import models
+    from calendar import monthrange
+    income_data = models.get_income_for_month(today.year, today.month)
+    monthly_income = income_data["total_income"] if isinstance(income_data, dict) else income_data
+
+    fixed_costs = sum(config.FIXED_MONTHLY_EXPENSES.values())
+    _fixed_cats = {"Housing & Utilities", "Debt Payments", "Giving & Church", "Family Support",
+                   "Transportation", "Childcare & Education", "Phone & Internet", "Car Insurance"}
+    txn_fixed = sum(abs(c.get("total", 0)) for c in mtd_breakdown if c.get("category") in _fixed_cats)
+    txn_discretionary = mtd_total - txn_fixed
+    effective_fixed = max(fixed_costs, txn_fixed)
+    total_outflow = effective_fixed + txn_discretionary
+    savings_target_val = int(database.get_setting(conn, "monthly_savings_target", "2000"))
+    saved = monthly_income - total_outflow
+    savings_rate = (saved / monthly_income * 100) if monthly_income > 0 else 0
+
+    days_in_month = monthrange(today.year, today.month)[1]
+    days_left = max(days_in_month - today.day, 1)
+    disc_budget = monthly_income - effective_fixed - savings_target_val
+    disc_left = max(disc_budget - txn_discretionary, 0)
+    daily_budget = disc_left / days_left if days_left > 0 else 0
+
+    # Trend analysis + budget status (same engine as dashboard category cards)
+    import analytics
+    import analytics_cache
+
+    # Trends: use cache first, compute fresh per category if no cache
+    trends = {}
+    for cat_data in mtd_breakdown:
+        cat = cat_data.get("category", "")
+        cached = analytics_cache.get_cached_trend(conn, cat)
+        if cached:
+            trends[cat] = cached
+        else:
+            try:
+                t = analytics.analyze_category_trend(conn, cat)
+                trends[cat] = {
+                    "direction": t.direction, "severity": t.severity,
+                    "pct_vs_mean": t.pct_vs_mean, "mean": t.mean,
+                    "current": t.current, "slope_per_month": t.slope_per_month,
+                }
+            except Exception:
+                pass
+
+    # Budget status: fresh computation
+    budget_statuses = {}
+    try:
+        for s in analytics.compute_budget_status(conn):
+            budget_statuses[s.category] = s
+    except Exception:
+        pass
+
+    # Top merchants this month (exclude transfers/payments)
+    try:
+        _all_merchants = database.get_merchant_spending(conn, months=1)
+        _excl = config.EXCLUDED_CATEGORIES
+        top_merchants = [m for m in _all_merchants if m.get("category") not in _excl][:10]
+    except Exception:
+        top_merchants = []
+
     return {
         "report_date": today.isoformat(),
         "week_start": week_ago.isoformat(),
@@ -103,6 +164,18 @@ def gather_report_data(conn, report_date: Optional[date] = None, period: str = "
         "alerts": alerts,
         "budget_status": budget_status,
         "savings_tips": savings_tips,
+        # Dashboard-grade data
+        "monthly_income": monthly_income,
+        "effective_fixed": effective_fixed,
+        "txn_discretionary": txn_discretionary,
+        "saved": saved,
+        "savings_target": savings_target_val,
+        "savings_rate": savings_rate,
+        "days_left": days_left,
+        "daily_budget": daily_budget,
+        "trends": trends,
+        "budget_statuses": budget_statuses,
+        "top_merchants": top_merchants,
     }
 
 
