@@ -60,12 +60,6 @@ st.markdown("""<style>
     /* Sidebar */
     section[data-testid="stSidebar"] > div { padding-top: 1rem; }
 
-    /* Top mobile nav — hidden on desktop where sidebar is visible */
-    @media (min-width: 769px) {
-        div[data-testid="stHorizontalBlock"]:has([data-testid="stWidgetLabel"]) ~ div[data-testid="stRadio"]:first-of-type,
-        .main > .block-container > div:first-child > div[data-testid="stRadio"][aria-label="Navigate"] { display: none; }
-    }
-
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 4px; background: #f8f9fb; padding: 4px; border-radius: 10px; }
     .stTabs [data-baseweb="tab"] {
@@ -266,28 +260,40 @@ with st.sidebar:
     conn.close()
     st.divider()
 
+    if "active_page" not in st.session_state:
+        st.session_state.active_page = "Dashboard"
     page = st.radio("Navigate", [
         "Dashboard",
         "Transactions",
         "Insights & Advisor",
         "Settings",
-    ], label_visibility="collapsed", key="nav_sidebar")
+    ], index=["Dashboard", "Transactions", "Insights & Advisor", "Settings"].index(st.session_state.active_page),
+       label_visibility="collapsed", key="nav_sidebar")
+    if page != st.session_state.active_page:
+        st.session_state.active_page = page
+        st.rerun()
 
-# ── Mobile top navigation (visible when sidebar is collapsed) ─────────
-_nav_options = ["Dashboard", "Transactions", "Insights & Advisor", "Settings"]
-_mobile_nav = st.radio(
-    "Navigate",
-    _nav_options,
-    index=_nav_options.index(page),
-    horizontal=True,
-    label_visibility="collapsed",
-    key="nav_top",
-)
-# Sync: if mobile nav changed, update sidebar to match
-if _mobile_nav != page:
-    st.session_state.nav_sidebar = _mobile_nav
-    st.rerun()
-page = _mobile_nav
+# ── Top navigation bar ───────────────────────────────────────────────
+_nav_items = [
+    ("📊", "Dashboard"),
+    ("📋", "Transactions"),
+    ("🔮", "Insights & Advisor"),
+    ("⚙️", "Settings"),
+]
+_nav_cols = st.columns(len(_nav_items))
+for i, (icon, label) in enumerate(_nav_items):
+    _is_active = st.session_state.active_page == label
+    with _nav_cols[i]:
+        if st.button(
+            f"{icon} {label.split(' & ')[0]}",
+            key=f"nav_btn_{i}",
+            use_container_width=True,
+            type="primary" if _is_active else "secondary",
+        ):
+            if not _is_active:
+                st.session_state.active_page = label
+                st.rerun()
+page = st.session_state.active_page
 
 # ═══════════════════════════════════════════════════════════════════════════
 # HELPER: Build clean charts
