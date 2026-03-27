@@ -13,8 +13,3 @@ font = "sans serif"
 
 [browser]
 gatherUsageStats = false
-
-# Authentication — restrict access to family emails only
-# Allowed emails are configured in Streamlit Cloud dashboard
-[auth]
-enabled = true
