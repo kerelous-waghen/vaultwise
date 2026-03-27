@@ -2209,8 +2209,16 @@ elif page == "Settings":
 
     # ── Fixed Monthly Expenses ────────────────────────────────────────
     st.markdown("#### Fixed Monthly Expenses")
+
+    def _remove_expense(label):
+        """Callback: instantly remove an expense and persist."""
+        config.FIXED_MONTHLY_EXPENSES.pop(label, None)
+        import json as _json_r
+        _conn_r = get_conn()
+        database.set_setting(_conn_r, "fixed_expenses_config", _json_r.dumps(config.FIXED_MONTHLY_EXPENSES))
+        _conn_r.close()
+
     _exp_changes = {}
-    _exp_to_remove = []
     _exp_cols = st.columns(2)
     _items = list(config.FIXED_MONTHLY_EXPENSES.items())
     _half = (len(_items) + 1) // 2
@@ -2221,34 +2229,21 @@ elif page == "Settings":
                 _short = _label.split("(")[0].strip()[:30]
                 _inp_col, _del_col = st.columns([4, 1])
                 _new_val = _inp_col.number_input(_short, value=_amt, step=10, key=f"fixed_{_label}")
-                if _del_col.button("✕", key=f"del_{_label}", help=f"Remove {_short}"):
-                    _exp_to_remove.append(_label)
+                _del_col.button("✕", key=f"del_{_label}", help=f"Remove {_short}",
+                                on_click=_remove_expense, args=(_label,))
                 if _new_val != _amt:
                     _exp_changes[_label] = _new_val
 
-    _new_fixed_total = sum(_exp_changes.get(k, v) for k, v in config.FIXED_MONTHLY_EXPENSES.items()
-                           if k not in _exp_to_remove)
+    _new_fixed_total = sum(_exp_changes.get(k, v) for k, v in config.FIXED_MONTHLY_EXPENSES.items())
     st.caption(f"**Total fixed: ${_new_fixed_total:,}/mo** (+ ~${getattr(config, 'CC_MONTHLY_AVERAGE', 5894):,} credit card avg)")
 
-    _has_changes = bool(_exp_changes) or bool(_exp_to_remove)
-    if _has_changes and st.button("Save Expense Changes", key="save_expenses"):
-        for _label in _exp_to_remove:
-            config.FIXED_MONTHLY_EXPENSES.pop(_label, None)
+    if _exp_changes and st.button("Save Expense Changes", key="save_expenses"):
         for _label, _val in _exp_changes.items():
-            if _label not in _exp_to_remove:
-                config.FIXED_MONTHLY_EXPENSES[_label] = _val
+            config.FIXED_MONTHLY_EXPENSES[_label] = _val
         import json as _json
         database.set_setting(conn, "fixed_expenses_config", _json.dumps(config.FIXED_MONTHLY_EXPENSES))
         _new_fixed_total = sum(config.FIXED_MONTHLY_EXPENSES.values())
         st.success(f"Expenses updated! Total fixed: ${_new_fixed_total:,}/mo")
-        st.rerun()
-
-    # Handle remove immediately
-    if _exp_to_remove and not _has_changes:
-        for _label in _exp_to_remove:
-            config.FIXED_MONTHLY_EXPENSES.pop(_label, None)
-        import json as _json
-        database.set_setting(conn, "fixed_expenses_config", _json.dumps(config.FIXED_MONTHLY_EXPENSES))
         st.rerun()
 
     # ── Add New Expense ─────────────────────────────────────────────
