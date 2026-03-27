@@ -2,14 +2,32 @@
 Family financial constants — single source of truth for the entire application.
 Public settings live here. Private data (names, income, accounts) lives in
 config_private.py which is excluded from git.
+
+On Streamlit Cloud, config_private.py is generated from st.secrets at startup.
 """
 
+import os
 from datetime import date
 
 # ---------------------------------------------------------------------------
 # Import all private data (names, income, accounts, expenses, objectives)
-# This file is NOT committed to git — see config_private.example.py for structure
+# Locally: reads from config_private.py on disk
+# Streamlit Cloud: writes config_private.py from secrets, then imports
 # ---------------------------------------------------------------------------
+_config_dir = os.path.dirname(os.path.abspath(__file__))
+_private_path = os.path.join(_config_dir, "config_private.py")
+
+if not os.path.exists(_private_path):
+    # On Streamlit Cloud: generate config_private.py from secrets
+    try:
+        import streamlit as st
+        _content = st.secrets.get("config_private_py", "")
+        if _content:
+            with open(_private_path, "w") as f:
+                f.write(_content)
+    except Exception:
+        pass
+
 from config_private import *  # noqa: F401, F403
 
 # ---------------------------------------------------------------------------
