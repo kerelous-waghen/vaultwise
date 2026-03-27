@@ -68,12 +68,23 @@ def inject_css():
     }
     [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 4px; }
 
-    /* Top nav pill bar — never wrap */
-    .nav-bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 4px !important; }
+    /* Top nav pill bar — force single row on all screen sizes */
+    .nav-bar [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+        overflow-x: auto;
+    }
+    .nav-bar [data-testid="stHorizontalBlock"] > div {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        width: auto !important;
+    }
     .nav-bar button {
-        font-size: clamp(0.6rem, 2.3vw, 0.78rem) !important;
-        padding: 8px 2px !important; border-radius: 10px !important;
-        white-space: nowrap; min-height: 42px;
+        font-size: clamp(0.65rem, 2.5vw, 0.82rem) !important;
+        padding: 8px 4px !important;
+        border-radius: 10px !important;
+        white-space: nowrap;
+        min-height: 42px;
     }
     .nav-bar button[kind="primary"] {
         box-shadow: 0 2px 8px rgba(0,102,255,0.25);

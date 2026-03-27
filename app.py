@@ -118,17 +118,22 @@ def _set_page(p):
     st.session_state.active_page = p
 
 
-_nav_items = [("📊", "Home"), ("📋", "Transactions"), ("🎯", "Savings Journey"), ("⚙️", "Settings")]
+_nav_items = [
+    ("📊", "Home", "Home"),
+    ("📋", "Txns", "Transactions"),
+    ("🔮", "Insights", "Savings Journey"),
+    ("⚙️", "Settings", "Settings"),
+]
 
 st.markdown('<div class="nav-bar">', unsafe_allow_html=True)
-_ncols = st.columns(len(_nav_items))
-for i, (icon, label) in enumerate(_nav_items):
-    is_active = st.session_state.active_page == label
+_ncols = st.columns([1, 1, 1, 1], gap="small")
+for i, (icon, short_label, page_name) in enumerate(_nav_items):
+    is_active = st.session_state.active_page == page_name
     _ncols[i].button(
-        f"{icon} {label}", key=f"nav_{i}",
+        f"{icon} {short_label}", key=f"nav_{i}",
         type="primary" if is_active else "secondary",
         use_container_width=True,
-        on_click=_set_page, args=(label,),
+        on_click=_set_page, args=(page_name,),
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
