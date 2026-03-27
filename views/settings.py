@@ -484,7 +484,7 @@ def settings_page():
                                     report_result.get("html_body", ""), plain,
                                 )
                         except Exception as e:
-                            st.error(f"Claude analysis failed: {e}")
+                            st.error("Claude analysis failed. Check your API key and try again.")
 
             # Send to Telegram
             st.divider()
@@ -714,10 +714,10 @@ def settings_page():
                         except monarch_sync.MonarchMFARequired:
                             st.session_state.mm_mfa_needed = True
                             st.rerun()
-                        except monarch_sync.MonarchAuthFailed as e:
-                            st.error(f"Authentication failed: {e}")
-                        except Exception as e:
-                            st.error(f"Connection error: {e}")
+                        except monarch_sync.MonarchAuthFailed:
+                            st.error("Monarch authentication failed. Check your email and password.")
+                        except Exception:
+                            st.error("Could not connect to Monarch. Please try again.")
                 else:
                     st.warning("Configure MONARCH_EMAIL and MONARCH_PASSWORD in .env first.")
 

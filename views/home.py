@@ -21,6 +21,7 @@ from shared.state import get_conn, get_advisor, escape_dollars
 
 
 def home_page():
+    """Render the Home dashboard: savings gauge, gap closer, category cards, and AI chat."""
     conn = get_conn()
     txn_count = database.get_transaction_count(conn)
 
@@ -470,7 +471,7 @@ def home_page():
                         st.markdown(escape_dollars(response))
                         st.session_state.dashboard_chat_history.append({"role": "assistant", "content": response})
                     except Exception as e:
-                        st.error(f"Could not get a response: {e}")
+                        st.error("Could not get a response. Please try again.")
                         st.session_state.dashboard_chat_history.append({"role": "assistant", "content": str(e)})
         else:
             with st.chat_message("assistant"):
