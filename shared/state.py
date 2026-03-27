@@ -28,15 +28,21 @@ def load_persisted_config():
     saved_income = database.get_setting(conn, "income_config")
     if saved_income:
         try:
-            config.INCOME.update(json.loads(saved_income))
+            config.INCOME = json.loads(saved_income)
         except (ValueError, TypeError):
             pass
     saved_expenses = database.get_setting(conn, "fixed_expenses_config")
     if saved_expenses:
         try:
-            config.FIXED_MONTHLY_EXPENSES.update(json.loads(saved_expenses))
+            # Replace entirely (not merge) so deleted items stay deleted
+            config.FIXED_MONTHLY_EXPENSES = json.loads(saved_expenses)
         except (ValueError, TypeError):
             pass
+    else:
+        # First run: persist current defaults to DB so they survive restarts
+        database.set_setting(conn, "fixed_expenses_config", json.dumps(config.FIXED_MONTHLY_EXPENSES))
+    if not saved_income:
+        database.set_setting(conn, "income_config", json.dumps(config.INCOME))
     # Seed default objectives
     database.seed_default_objectives(conn)
     conn.close()
