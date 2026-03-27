@@ -114,6 +114,25 @@ st.markdown("""<style>
         .stTabs [data-baseweb="tab"] { padding: 6px 10px; font-size: 0.85rem; }
     }
     [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 4px; }
+
+    /* Top nav pill bar — always inline */
+    div[data-testid="stRadio"][aria-label="nav"] > div {
+        flex-wrap: nowrap !important; gap: 4px !important;
+        background: #f8f9fb; border: 1px solid #e2e6ed;
+        border-radius: 14px; padding: 5px;
+    }
+    div[data-testid="stRadio"][aria-label="nav"] label {
+        font-size: clamp(0.65rem, 2.5vw, 0.82rem) !important;
+        padding: 8px 6px !important; border-radius: 10px !important;
+        text-align: center; white-space: nowrap; min-height: 40px;
+        display: flex; align-items: center; justify-content: center;
+    }
+    div[data-testid="stRadio"][aria-label="nav"] label[data-checked="true"] {
+        background: #0066FF !important; color: white !important;
+        box-shadow: 0 2px 8px rgba(0,102,255,0.25);
+    }
+    div[data-testid="stRadio"][aria-label="nav"] label > div:first-child { display: none; }
+
     /* Gauge responsive helpers */
     .gauge-header, .gauge-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }
     .gauge-detail { font-size: clamp(0.7rem, 2.5vw, 0.82rem); }
@@ -274,25 +293,22 @@ with st.sidebar:
         st.rerun()
 
 # ── Top navigation bar ───────────────────────────────────────────────
-_nav_items = [
-    ("📊", "Dashboard"),
-    ("📋", "Transactions"),
-    ("🔮", "Insights & Advisor"),
-    ("⚙️", "Settings"),
-]
-_nav_cols = st.columns(len(_nav_items))
-for i, (icon, label) in enumerate(_nav_items):
-    _is_active = st.session_state.active_page == label
-    with _nav_cols[i]:
-        if st.button(
-            f"{icon} {label.split(' & ')[0]}",
-            key=f"nav_btn_{i}",
-            use_container_width=True,
-            type="primary" if _is_active else "secondary",
-        ):
-            if not _is_active:
-                st.session_state.active_page = label
-                st.rerun()
+_page_list = ["📊 Dashboard", "📋 Transactions", "🔮 Insights", "⚙️ Settings"]
+_page_map = {"📊 Dashboard": "Dashboard", "📋 Transactions": "Transactions",
+             "🔮 Insights": "Insights & Advisor", "⚙️ Settings": "Settings"}
+_page_reverse = {v: k for k, v in _page_map.items()}
+
+_top_nav = st.radio(
+    "nav", _page_list,
+    index=_page_list.index(_page_reverse[st.session_state.active_page]),
+    horizontal=True,
+    label_visibility="collapsed",
+    key="nav_top",
+)
+_selected = _page_map[_top_nav]
+if _selected != st.session_state.active_page:
+    st.session_state.active_page = _selected
+    st.rerun()
 page = st.session_state.active_page
 
 # ═══════════════════════════════════════════════════════════════════════════
