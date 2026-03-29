@@ -116,6 +116,12 @@ def savings_journey_page():
     )
     st.markdown(_html, unsafe_allow_html=True)
 
+    st.caption(
+        f"This is your monthly flex budget. Everything below tracks "
+        f"only flexible categories — fixed bills (${_effective_fixed:,.0f}/mo) "
+        f"are already accounted for."
+    )
+
     st.markdown(
         '<div style="font-size:0.65rem;color:#bbb;font-weight:700;'
         'text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 6px;">'
@@ -125,11 +131,12 @@ def savings_journey_page():
 
     # Header
     _table = (
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 24px;'
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 24px;'
         'gap:4px;font-size:0.6rem;color:#bbb;font-weight:700;'
         'text-transform:uppercase;margin-bottom:4px;padding:0 2px;">'
         '<span>Month</span>'
-        '<span style="text-align:right;">Spent</span>'
+        '<span style="text-align:right;">Flex Spent</span>'
+        '<span style="text-align:right;">Budget</span>'
         '<span style="text-align:right;">vs Budget</span>'
         '<span></span></div>'
     )
@@ -147,12 +154,14 @@ def savings_journey_page():
         _diff_str = f"+${_diff:,.0f}" if _diff >= 0 else f"−${abs(_diff):,.0f}"
 
         _table += (
-            f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 24px;'
+            f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 24px;'
             f'gap:4px;font-size:0.82rem;padding:5px 2px;'
             f'border-bottom:1px solid #f5f3ef;">'
             f'<span style="color:#555;font-weight:500;">{_mo_label}</span>'
             f'<span style="text-align:right;font-weight:600;color:{_spent_color};">'
             f'${_actual:,.0f}</span>'
+            f'<span style="text-align:right;font-weight:500;color:#888;">'
+            f'${_spending_money:,.0f}</span>'
             f'<span style="text-align:right;font-weight:700;color:{_diff_color};">'
             f'{_diff_str}</span>'
             f'<span style="text-align:center;">{_icon}</span></div>'
@@ -252,11 +261,26 @@ def savings_journey_page():
     _cat_avgs.sort(key=lambda c: c["avg_spend"], reverse=True)
 
     st.markdown("### What You Can Control")
-    st.caption(
-        f"Drag sliders to see if your total fits inside "
-        f"${_spending_money:,.0f}. Only flexible categories — "
-        f"fixed bills are excluded."
+
+    # Compute typical total for the intro message
+    _intro_typical = sum(
+        round(sum(a) / len(a))
+        for a in _all_cats.values()
+        if round(sum(a) / len(a)) > 20
     )
+    _intro_gap = _intro_typical - _spending_money
+    if _intro_gap > 0:
+        st.caption(
+            f"Your typical flex spending is ${_intro_typical:,.0f}/mo but your "
+            f"flex budget is ${_spending_money:,.0f}/mo — a ${_intro_gap:,.0f} gap. "
+            f"Drag sliders below to find realistic cuts that close it."
+        )
+    else:
+        st.caption(
+            f"Your typical flex spending (${_intro_typical:,.0f}/mo) fits inside "
+            f"your ${_spending_money:,.0f}/mo flex budget. "
+            f"Drag sliders to explore further savings."
+        )
 
     _slider_values = {}
     _typical_total = 0
