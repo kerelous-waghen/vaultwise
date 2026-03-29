@@ -57,6 +57,8 @@ if not hasattr(_this, "CATEGORY_MERGES"):
     CATEGORY_MERGES = {}
 if not hasattr(_this, "HIDE_ZERO_CATEGORIES"):
     HIDE_ZERO_CATEGORIES = True
+if not hasattr(_this, "MERCHANT_CATEGORY_OVERRIDES"):
+    MERCHANT_CATEGORY_OVERRIDES = {}
 if not hasattr(_this, "APP_SUBTITLE"):
     APP_SUBTITLE = ""
 if not hasattr(_this, "AUTO_RECATEGORIZE_DAYS"):

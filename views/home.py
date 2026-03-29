@@ -62,6 +62,18 @@ def home_page():
     month_display = f"{_mn[int(_m)]} {_y}"
     st.markdown(f"### {month_display}")
 
+    # Apply merchant category overrides (fixes merchants in wrong categories)
+    _overrides = getattr(config, 'MERCHANT_CATEGORY_OVERRIDES', {})
+    if _overrides:
+        for _pattern, _target_cat in _overrides.items():
+            conn.execute(
+                "UPDATE transactions SET category = ? "
+                "WHERE strftime('%Y-%m', date) = ? "
+                "AND LOWER(description) LIKE ? AND category != ?",
+                (_target_cat, selected_month, f"%{_pattern.lower()}%", _target_cat),
+            )
+        conn.commit()
+
     # Get this month's data
     _raw_breakdown = database.get_monthly_category_breakdown(conn, selected_month)
     _active_cats_dash = category_engine.get_active_categories(conn)

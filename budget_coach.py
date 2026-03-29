@@ -142,7 +142,7 @@ def _build_prompt(flex_status, conn, month_key, sel_year, sel_month,
     for s in flex_status[:12]:
         cat_lines.append(
             f"- {s['category']}: ${s['current_spend']:,.0f} this month, "
-            f"typical ${s['monthly_average']:,.0f}, "
+            f"expected ${s['monthly_average']:,.0f}, "
             f"median ${s['monthly_median']:,.0f}, "
             f"projected ${s['projected_month_end']:,.0f}, "
             f"percentile {s['percentile']}"
@@ -212,7 +212,7 @@ def _build_prompt(flex_status, conn, month_key, sel_year, sel_month,
         '   - "badge": "way over" | "elevated" | "hot pace" | "one-time" | '
         '"normal" | "under pace" | "low"\n'
         '   - "badge_icon": single emoji\n'
-        '   - "color": "#dc2626" | "#f59e0b" | "#22c55e" | "#6b7280"\n'
+        '   - "color": "#dc2626" (red/way over) | "#e11d48" (rose/elevated) | "#f59e0b" (amber/hot) | "#0284c7" (blue/normal) | "#16a34a" (green/under) | "#059669" (emerald/low)\n'
         '   - "note": one sentence. Say "$X actual vs $Y expected" then '
         'brief context. If a merchant appears in multiple categories '
         '(e.g., Amazon in both Online Shopping and Other Shopping, or '
@@ -355,13 +355,25 @@ def _render_summary(coach, escape_fn):
 def _badge_style(badge_text):
     """Return (bg_color, text_color) for a badge."""
     b = badge_text.lower()
-    if any(w in b for w in ("way over", "elevated", "high")):
-        return "#fef2f2", "#dc2626"
+    if "way over" in b:
+        return "#fef2f2", "#dc2626"      # Red
+    if any(w in b for w in ("elevated", "high")):
+        return "#fff1f2", "#e11d48"      # Rose
     if any(w in b for w in ("hot", "one-time", "spike")):
-        return "#fffbeb", "#d97706"
-    if any(w in b for w in ("normal", "under", "low")):
-        return "#f0fdf4", "#16a34a"
-    return "#f5f5f5", "#888888"
+        return "#fffbeb", "#d97706"      # Amber
+    if "normal" in b:
+        return "#f0f9ff", "#0284c7"      # Sky blue (neutral)
+    if "under" in b:
+        return "#f0fdf4", "#16a34a"      # Green (good)
+    if "low" in b:
+        return "#ecfdf5", "#059669"      # Emerald (very good)
+    return "#f5f5f5", "#888888"          # Gray fallback
+
+
+def _bold_dollars(text):
+    """Make dollar amounts bold in HTML text."""
+    import re
+    return re.sub(r'(\$[\d,]+)', r'<strong>\1</strong>', text)
 
 
 def _hex_to_rgba(hex_color, alpha):
@@ -384,16 +396,19 @@ def _render_category_card(cat_info, spent, typical, escape_fn):
 
     badge_bg, badge_fg = _badge_style(badge)
 
-    # Card border/bg tint for problem categories
+    # Card border/bg tint by severity
     if any(w in badge.lower() for w in ("way over", "elevated")):
         card_bg = "#fef2f2"
         card_border = color
     elif any(w in badge.lower() for w in ("hot", "one-time", "spike")):
         card_bg = "#fffbeb"
         card_border = "#f59e0b"
+    elif "normal" in badge.lower():
+        card_bg = "#f8fafc"
+        card_border = "#e2e8f0"
     else:
-        card_bg = "#ffffff"
-        card_border = "#eae7e1"
+        card_bg = "#f0fdf4"
+        card_border = "#bbf7d0"
 
     # Bar percentage: spent vs typical (capped at 100)
     bar_pct = min(round(spent / max(typical, 1) * 100), 100) if typical > 0 else 50
@@ -434,7 +449,7 @@ def _render_category_card(cat_info, spent, typical, escape_fn):
 
         # Row 3: note (Claude's note already includes "actual vs expected")
         f'<div style="font-size:0.78rem;color:#666;line-height:1.35;">'
-        f'{note}</div>'
+        f'{_bold_dollars(note)}</div>'
 
         f'</div>',
         unsafe_allow_html=True,
@@ -451,7 +466,7 @@ def _render_detail_expander(cat_name, hist, forecast, merchants, spent,
         st.markdown(
             f'<div style="display:flex;justify-content:space-around;text-align:center;'
             f'padding:6px 0;margin-bottom:4px;">'
-            f'<div><div style="font-size:0.65rem;color:#aaa;text-transform:uppercase;">Typical</div>'
+            f'<div><div style="font-size:0.65rem;color:#aaa;text-transform:uppercase;">Expected</div>'
             f'<div style="font-weight:700;font-size:0.9rem;">\\${typical:,.0f}</div></div>'
             f'<div><div style="font-size:0.65rem;color:#aaa;text-transform:uppercase;">Median</div>'
             f'<div style="font-weight:700;font-size:0.9rem;">\\${median_val:,.0f}</div></div>'
@@ -658,9 +673,9 @@ def render(conn, selected_month, sel_year, sel_month,
         # Claude's analysis (or fallback with actual vs expected)
         ci = claude_cats.get(cat_name, {
             "name": cat_name,
-            "badge": "low" if spent < typical * 0.5 else ("normal" if spent <= typical * 1.3 else "elevated"),
-            "badge_icon": "\U0001f4c9" if spent < typical * 0.5 else ("\u2705" if spent <= typical * 1.3 else "\u26a0\ufe0f"),
-            "color": "#22c55e" if spent <= typical else ("#f59e0b" if spent <= typical * 1.5 else "#dc2626"),
+            "badge": "low" if spent < typical * 0.5 else ("under pace" if spent < typical * 0.8 else ("normal" if spent <= typical * 1.3 else "elevated")),
+            "badge_icon": "\U0001f4c9" if spent < typical * 0.5 else ("\u2705" if spent < typical * 0.8 else ("\U0001f4ca" if spent <= typical * 1.3 else "\u26a0\ufe0f")),
+            "color": "#059669" if spent < typical * 0.5 else ("#16a34a" if spent < typical * 0.8 else ("#0284c7" if spent <= typical * 1.3 else "#dc2626")),
             "note": f"${spent:,.0f} actual vs ${typical:,.0f} expected",
         })
 
