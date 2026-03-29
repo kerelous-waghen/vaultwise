@@ -74,6 +74,8 @@ def inject_css():
         section[data-testid="stSidebar"] > div { padding-top: 0.5rem; }
         section[data-testid="stSidebar"] [data-testid="stMetric"] { padding: 8px 12px; }
         .stTabs [data-baseweb="tab"] { padding: 6px 10px; font-size: 0.85rem; }
+        [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+        .main .block-container { max-width: 100% !important; }
     }
     [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 4px; }
 
