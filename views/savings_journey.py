@@ -1,308 +1,372 @@
-"""Savings Journey — Forward-looking narrative.
-Trajectory, scenarios, goals, AI advisor — all in one scrollable story.
-"""
+"""Plan page — The Math, Your Trend, What You Can Control."""
 
-from datetime import date, timedelta
+import calendar as _cal
+from datetime import date as _date
 
 import plotly.graph_objects as go
 import streamlit as st
 
-import analytics
-import analytics_cache
+import category_engine
 import config
 import database
 import models
-from shared.charts import CHART_LAYOUT, PALETTE, make_monthly_net_chart, make_cumulative_chart
-from shared.state import get_conn, get_advisor, escape_dollars
+from shared.state import get_conn
+
+
+def _get_flexible_spending(conn, year_month: str, fixed_cats, muted_cats, merges):
+    """Get flexible spending for a month using same logic as dashboard.
+
+    Returns (total_flexible, category_totals_dict).
+    """
+    _raw = database.get_monthly_category_breakdown(conn, year_month)
+    _active = category_engine.get_active_categories(conn)
+    _cats = [c for c in _raw if c["category"] in _active]
+
+    # Apply merges (same as home.py lines 121-133)
+    _merge_sources = set()
+    for _target, _sources in merges.items():
+        _merge_sources.update(_sources)
+        _target_entry = next((c for c in _cats if c["category"] == _target), None)
+        for _src in _sources:
+            _src_entry = next((c for c in _cats if c["category"] == _src), None)
+            if _src_entry:
+                if _target_entry:
+                    _target_entry["total"] += _src_entry["total"]
+                    _target_entry["txn_count"] += _src_entry["txn_count"]
+                else:
+                    _src_entry["category"] = _target
+                    _target_entry = _src_entry
+                    _merge_sources.discard(_src)
+
+    # Filter muted + merge sources
+    _cats = [c for c in _cats
+             if c["category"] not in muted_cats
+             and c["category"] not in _merge_sources]
+
+    # Separate fixed vs flexible
+    _flex = [c for c in _cats if c["category"] not in fixed_cats]
+    _total = sum(abs(c["total"]) for c in _flex)
+    _by_cat = {c["category"]: abs(c["total"]) for c in _flex}
+    return _total, _by_cat
 
 
 def savings_journey_page():
-    """Render the Savings Journey page: current status, forecasts, goals, and what-if scenarios."""
-    st.markdown("## Savings Journey")
+    """Render the Plan page with budget math, trend chart, and what-if sliders."""
     conn = get_conn()
 
+    # ── Recompute key variables ───────────────────────────────────────
     savings_target = int(database.get_setting(conn, "monthly_savings_target", "2000"))
-    _today = date.today()
+    _today = _date.today()
     _income_data = models.get_income_for_month(_today.year, _today.month)
     _monthly_income = _income_data["total_income"] if isinstance(_income_data, dict) else _income_data
-    savings_status = models.compute_savings_status(conn, savings_target, income_override=_monthly_income)
+    # Exclude bonuses by default (same as dashboard)
+    _kero_bonus = _income_data.get("kero_bonus", 0) if isinstance(_income_data, dict) else 0
+    _maggie_bonus = _income_data.get("maggie_bonus", 0) if isinstance(_income_data, dict) else 0
+    _monthly_income -= (_kero_bonus + _maggie_bonus)
+    _effective_fixed = sum(config.FIXED_MONTHLY_EXPENSES.values())
+    _savings_target = savings_target
+    _spending_money = _monthly_income - _effective_fixed - _savings_target
 
-    # ── Section 1: Where You Are ──────────────────────────────────────
-    st.markdown("### Where You Are")
-    st.caption("Your actual savings performance based on recent transaction data.")
+    # ── Category sets (same as dashboard home.py) ──────────────────────
+    _muted_cats = set(getattr(config, 'MUTED_CATEGORIES', []))
+    _fixed_cats = {"Housing & Utilities", "Debt Payments", "Family Support",
+                   "Transportation", "Phone & Internet", "Car Insurance"}
+    _fixed_cats.update(getattr(config, 'MONARCH_FIXED_MAP', {}).keys())
+    _merges = getattr(config, 'CATEGORY_MERGES', {})
 
-    _r1c1, _r1c2 = st.columns(2)
-    _r1c1.metric("Savings Target", f"\\${savings_target:,}/mo")
-    _r1c2.metric("Current Avg Net", f"\\${savings_status['actual_avg_net']:,.0f}/mo",
-              delta="Hitting your target" if savings_status["on_track"] else f"\\${savings_status['current_gap']:,.0f} short",
-              delta_color="normal" if savings_status["on_track"] else "inverse")
-    _r2c1, _r2c2 = st.columns(2)
-    _r2c1.metric("Projected Avg Net", f"\\${savings_status['projected_avg_net']:,.0f}/mo")
-    _r2c2.metric("Months Analyzed", savings_status["months_analyzed"])
-
-    df = models.project_cash_flow()
-    _chart_tab1, _chart_tab2 = st.tabs(["Monthly Net", "Cumulative Savings"])
-    with _chart_tab1:
-        st.plotly_chart(make_monthly_net_chart(df, height=300), use_container_width=True, config={"displayModeBar": False})
-    with _chart_tab2:
-        st.plotly_chart(make_cumulative_chart(df, height=370), use_container_width=True, config={"displayModeBar": False})
-
-    st.divider()
-
-    # ── Section 2: Where You're Going ─────────────────────────────────
-    st.markdown("### Where You're Going")
-    st.caption("Prophet ML forecasts based on your spending history.")
-
-    try:
-        prophet_result = analytics.prophet_forecast_total_spending(conn, periods=6)
-        if prophet_result:
-            hist_rows = conn.execute("""
-                SELECT strftime('%Y-%m', date) as month,
-                       SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) as spending
-                FROM transactions GROUP BY month ORDER BY month
-            """).fetchall()
-            hist_months = [r["month"] for r in hist_rows]
-            hist_vals = [abs(r["spending"]) for r in hist_rows if r["spending"]]
-            avg = sum(hist_vals) / len(hist_vals) if hist_vals else 0
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=hist_months, y=hist_vals, mode="lines+markers",
-                name="Actual", line=dict(color=PALETTE["blue"], width=2),
-                marker=dict(size=6),
-                hovertemplate="<b>%{x}</b><br>Actual: $%{y:,.0f}<extra></extra>",
-            ))
-
-            last_hist_month = hist_months[-1] if hist_months else None
-            last_hist_val = hist_vals[-1] if hist_vals else 0
-
-            fc_months = ([last_hist_month] if last_hist_month else []) + [f["month"] for f in prophet_result["forecast"]]
-            fc_vals = ([last_hist_val] if last_hist_month else []) + [f["predicted"] for f in prophet_result["forecast"]]
-            fc_lower = ([last_hist_val] if last_hist_month else []) + [f["lower"] for f in prophet_result["forecast"]]
-            fc_upper = ([last_hist_val] if last_hist_month else []) + [f["upper"] for f in prophet_result["forecast"]]
-
-            fig.add_trace(go.Scatter(
-                x=fc_months + fc_months[::-1],
-                y=fc_upper + fc_lower[::-1],
-                fill="toself", fillcolor="rgba(139,92,246,0.12)",
-                line=dict(width=0), showlegend=True, name="80% confidence",
-                hoverinfo="skip",
-            ))
-            fig.add_trace(go.Scatter(
-                x=fc_months, y=fc_vals, mode="lines+markers",
-                name="Prophet Forecast", line=dict(color=PALETTE["purple"], width=2.5, dash="dash"),
-                marker=dict(size=7, symbol="diamond"),
-                hovertemplate="<b>%{x}</b><br>Forecast: $%{y:,.0f}<extra></extra>",
-            ))
-
-            # Annotate next month prediction directly on the chart
-            if prophet_result["forecast"]:
-                _next = prophet_result["forecast"][0]
-                fig.add_annotation(
-                    x=_next["month"], y=_next["predicted"],
-                    text=f"${_next['predicted']:,.0f}",
-                    showarrow=True, arrowhead=2, arrowcolor=PALETTE["purple"],
-                    font=dict(size=11, color=PALETTE["purple"], weight="bold"),
-                    ax=0, ay=-30,
-                )
-
-            fig.update_layout(**CHART_LAYOUT, height=360,
-                             legend=dict(orientation="h", yanchor="bottom", y=1.02, font_size=10),
-                             yaxis=dict(title="Monthly Spending ($)", gridcolor="#f3f4f6", tickformat="$,.0f"),
-                             xaxis=dict(gridcolor="#f3f4f6"))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-            # Confidence level badge
-            mape = prophet_result['mape']
-            if mape < 10:
-                confidence = "HIGH"
-                conf_color = "#22c55e"
-            elif mape < 20:
-                confidence = "MEDIUM"
-                conf_color = "#f59e0b"
-            else:
-                confidence = "LOW"
-                conf_color = "#ef4444"
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Model Accuracy (MAPE)", f"{mape:.1f}%")
-            c2.metric("Data Points", prophet_result["data_points"])
-            next_fc = prophet_result["forecast"][0]
-            c3.metric(f"Next Month ({next_fc['month']})",
-                      f"${next_fc['predicted']:,.0f}",
-                      delta=f"${next_fc['predicted'] - avg:+,.0f} vs avg")
-
-            st.markdown(
-                f'<div style="display:inline-block;background:{conf_color};color:white;'
-                f'padding:4px 12px;border-radius:20px;font-size:0.8rem;font-weight:700;">'
-                f'{confidence} CONFIDENCE</div>'
-                f' <span style="color:#6b7280;font-size:0.82rem;">Based on {prophet_result["data_points"]} months of data, {mape:.1f}% error rate</span>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("Need at least 4 months of data for Prophet forecasting. Upload more statements.")
-    except Exception as e:
-        st.caption("Prophet forecast unavailable. Upload more data or try again later.")
-
-    st.divider()
-
-    # ── Section 3: Your Goals (BUG FIX #1: actual progress) ──────────
-    st.markdown("### Your Goals")
-    st.caption("Track progress toward your financial objectives.")
-
-    objectives = database.get_active_objectives(conn)
-
-    if objectives:
-        for obj in objectives:
-            target = obj["target"] or 0
-            if target > 0:
-                # BUG FIX #1: Pull actual current_amount instead of hardcoded 0
-                obj_history = database.get_objective_history(conn, obj["objective_id"])
-                if obj_history:
-                    current = obj_history[-1]["current_amount"]
-                else:
-                    # Fall back to cumulative net from savings status
-                    current = max(savings_status["actual_avg_net"] * savings_status["months_analyzed"], 0)
-
-                pct = min(1.0, max(0.0, current / target)) if target > 0 else 0
-                st.progress(pct, text=f"**{obj['label']}**: \\${current:,.0f} / \\${target:,.0f} ({pct*100:.0f}%)")
-
-                # ETA calculation
-                monthly_net = savings_status["actual_avg_net"]
-                if monthly_net > 0 and current < target:
-                    months_to_goal = (target - current) / monthly_net
-                    eta = date.today() + timedelta(days=int(months_to_goal * 30))
-                    st.caption(f"At your current pace, you'll reach this goal by **{eta.strftime('%B %Y')}**")
-                elif current >= target:
-                    st.caption("🎉 **Goal reached!**")
-
-                # Manual progress update
-                with st.expander("Update Progress", expanded=False):
-                    new_amount = st.number_input(
-                        f"Current amount for {obj['label']}",
-                        value=int(current), step=100,
-                        key=f"goal_update_{obj['objective_id']}"
-                    )
-                    if st.button("Save", key=f"goal_save_{obj['objective_id']}"):
-                        database.snapshot_objective(conn, obj["objective_id"], new_amount, date.today().isoformat())
-                        st.success("Progress updated!")
-                        st.rerun()
-            else:
-                st.write(f"**{obj['label']}**: {obj['description'] or ''}")
-    else:
-        st.info("No goals set yet. Add one below.")
-
-    st.markdown("##### Add Goal")
-    with st.form("new_goal"):
-        label = st.text_input("Goal name", placeholder="e.g., Emergency fund $10k")
-        target = st.number_input("Target ($)", min_value=0, value=0, step=500)
-        deadline = st.date_input("Deadline", value=None)
-        if st.form_submit_button("Create", type="primary") and label:
-            oid = label.lower().replace(" ", "_")[:30]
-            database.create_objective(conn, oid, label, target=target if target > 0 else None,
-                                     deadline=deadline.isoformat() if deadline else None)
-            st.rerun()
-
-    st.divider()
-
-    # ── Section 4: What-If (BUG FIX #2: dynamic sliders) ─────────────
-    st.markdown("### What-If Scenarios")
-    st.caption("Adjust the sliders to see how spending cuts change your trajectory and goal timelines.")
-
-    scenario_df = models.project_cash_flow()
-
-    # BUG FIX #2: Dynamic sliders from actual top discretionary categories
-    _fixed_cats_scenario = {"Housing & Utilities", "Debt Payments", "Giving & Church",
-                            "Family Support", "Phone & Internet", "Car Insurance",
-                            "Transportation", "Childcare & Education"}
-
-    # Get average monthly spend per category from recent months
-    _recent_months = conn.execute("""
-        SELECT category, AVG(monthly_total) as avg_spend FROM (
-            SELECT category, strftime('%Y-%m', date) as month, ABS(SUM(amount)) as monthly_total
-            FROM transactions WHERE amount < 0
-            GROUP BY category, month
-        )
-        GROUP BY category
-        ORDER BY avg_spend DESC
+    # ── Get last 6 months of flexible spending ─────────────────────────
+    _month_keys = conn.execute("""
+        SELECT DISTINCT strftime('%Y-%m', date) as month
+        FROM transactions WHERE amount < 0
+        ORDER BY month DESC LIMIT 6
     """).fetchall()
 
-    _disc_cats = [r for r in _recent_months
-                  if r["category"] not in _fixed_cats_scenario
-                  and r["category"] not in getattr(config, 'EXCLUDED_CATEGORIES', set())
-                  and r["category"] not in {"Transfers & Payments", "Credit Card Payments"}]
-    _top5 = _disc_cats[:5]
+    _hist_rows = []         # [{month, total}, ...]
+    _month_cat_totals = {}  # {month: {cat: amount}}
+    for _mk in _month_keys:
+        _ym = _mk["month"]
+        _total, _by_cat = _get_flexible_spending(
+            conn, _ym, _fixed_cats, _muted_cats, _merges)
+        _hist_rows.append({"month": _ym, "total": _total})
+        _month_cat_totals[_ym] = _by_cat
 
-    adjustments = {}
-    total_cut = 0
-    if _top5:
-        c1, c2 = st.columns(2)
-        for i, cat_row in enumerate(_top5):
-            col = c1 if i < 3 else c2
-            cat_name = cat_row["category"]
-            avg_spend = cat_row["avg_spend"] or 0
-            max_cut = max(int(avg_spend * 0.8), 10)
-            default_cut = min(int(avg_spend * 0.3), max_cut)
-            with col:
-                cut = st.slider(f"{cat_name} cut $/mo", 0, max_cut, default_cut, 10,
-                                key=f"scenario_{cat_name}")
-                adjustments[cat_name] = -cut
-                total_cut += cut
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 1: THE MATH
+    # ══════════════════════════════════════════════════════════════════
+    st.markdown("### The Math")
+
+    _rows = [
+        ("Income", f"${_monthly_income:,.0f}", "#1a1a2e"),
+        ("− Fixed bills", f"−${_effective_fixed:,.0f}", "#ef4444"),
+        ("− Savings target", f"−${_savings_target:,.0f}", "#f59e0b"),
+    ]
+    _html = '<div style="font-size:0.88rem;line-height:2;">'
+    for label, value, color in _rows:
+        _html += (
+            f'<div style="display:flex;justify-content:space-between;">'
+            f'<span style="color:#888;">{label}</span>'
+            f'<span style="font-weight:600;color:{color};">{value}</span></div>'
+        )
+    _html += (
+        f'<div style="border-top:2px solid #1a1a2e;margin-top:4px;padding-top:4px;'
+        f'display:flex;justify-content:space-between;">'
+        f'<span style="font-weight:800;">= Spending money</span>'
+        f'<span style="font-weight:800;font-size:1.05rem;color:#16a34a;">'
+        f'${_spending_money:,.0f}/mo</span></div></div>'
+    )
+    st.markdown(_html, unsafe_allow_html=True)
+
+    st.markdown(
+        '<div style="font-size:0.65rem;color:#bbb;font-weight:700;'
+        'text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 6px;">'
+        'Last 6 Months</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Header
+    _table = (
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 24px;'
+        'gap:4px;font-size:0.6rem;color:#bbb;font-weight:700;'
+        'text-transform:uppercase;margin-bottom:4px;padding:0 2px;">'
+        '<span>Month</span>'
+        '<span style="text-align:right;">Spent</span>'
+        '<span style="text-align:right;">vs Budget</span>'
+        '<span></span></div>'
+    )
+
+    for r in _hist_rows:
+        _mo = r["month"]  # "2026-03"
+        _mo_num = int(_mo[-2:])
+        _mo_year = _mo[:4]
+        _mo_label = f"{_cal.month_abbr[_mo_num]} '{_mo_year[-2:]}"
+        _actual = round(r["total"])
+        _diff = _spending_money - _actual
+        _icon = "✅" if _diff >= 0 else "❌"
+        _spent_color = "#ef4444" if _actual > _spending_money else "#1a1a2e"
+        _diff_color = "#16a34a" if _diff >= 0 else "#ef4444"
+        _diff_str = f"+${_diff:,.0f}" if _diff >= 0 else f"−${abs(_diff):,.0f}"
+
+        _table += (
+            f'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 24px;'
+            f'gap:4px;font-size:0.82rem;padding:5px 2px;'
+            f'border-bottom:1px solid #f5f3ef;">'
+            f'<span style="color:#555;font-weight:500;">{_mo_label}</span>'
+            f'<span style="text-align:right;font-weight:600;color:{_spent_color};">'
+            f'${_actual:,.0f}</span>'
+            f'<span style="text-align:right;font-weight:700;color:{_diff_color};">'
+            f'{_diff_str}</span>'
+            f'<span style="text-align:center;">{_icon}</span></div>'
+        )
+
+    st.markdown(_table, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 2: YOUR TREND
+    # ══════════════════════════════════════════════════════════════════
+    st.markdown("### Your Trend")
+
+    _months = [r["month"] for r in reversed(_hist_rows)]
+    _values = [round(r["total"]) for r in reversed(_hist_rows)]
+    _colors = ["#ef4444" if v > _spending_money else "#22c55e" for v in _values]
+    _labels = [
+        f"{_cal.month_abbr[int(m[-2:])]} '{m[2:4]}" for m in _months
+    ]
+
+    _fig = go.Figure()
+
+    # Bars
+    _fig.add_trace(go.Bar(
+        x=_labels, y=_values,
+        marker_color=_colors,
+        hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
+        text=[f"${v:,.0f}" for v in _values],
+        textposition="outside",
+        textfont=dict(size=10, color="#888"),
+    ))
+
+    # Budget line
+    _fig.add_hline(
+        y=_spending_money,
+        line_dash="dash", line_color="#1a1a2e", line_width=1.5,
+        annotation_text=f"${_spending_money:,.0f} budget",
+        annotation_position="top right",
+        annotation_font=dict(size=10, color="#888"),
+    )
+
+    _fig.update_layout(
+        height=200,
+        margin=dict(t=30, b=30, l=50, r=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#aaa")),
+        yaxis=dict(
+            showgrid=True, gridcolor="#f5f5f5",
+            tickfont=dict(size=9, color="#bbb"),
+            tickformat="$,.0f", zeroline=False,
+        ),
+        showlegend=False,
+    )
+
+    st.plotly_chart(_fig, use_container_width=True,
+                    config={"displayModeBar": False})
+
+    # Metric pills
+    _avg_actual = round(sum(_values) / max(len(_values), 1))
+    _months_hit = sum(1 for v in _values if v <= _spending_money)
+
+    _c1, _c2 = st.columns(2)
+    _c1.metric("Avg Monthly Spending", f"${_avg_actual:,.0f}",
+               delta=f"vs ${_spending_money:,.0f} budget",
+               delta_color="inverse")
+    _c2.metric("Hit Target", f"{_months_hit} of {len(_values)}",
+               delta="months")
+
+    if _avg_actual > _spending_money:
+        _gap = _avg_actual - _spending_money
+        st.markdown(
+            f'<div style="background:#fef2f2;border:1px solid #fecaca;'
+            f'border-radius:8px;padding:8px 12px;margin-top:8px;'
+            f'font-size:0.82rem;color:#991b1b;line-height:1.4;">'
+            f'Typical spending is ~${_gap:,.0f}/mo above budget. '
+            f'The What-If below helps find where to cut.</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════════════
+    # SECTION 3: WHAT YOU CAN CONTROL
+    # ══════════════════════════════════════════════════════════════════
+    # Compute average monthly spend per flexible category from the same data
+    _all_cats = {}  # {cat: [month_amounts]}
+    for _ym, _by_cat in _month_cat_totals.items():
+        for _cat_name, _amt in _by_cat.items():
+            _all_cats.setdefault(_cat_name, []).append(_amt)
+    _cat_avgs = []
+    for _cat_name, _amounts in _all_cats.items():
+        _avg = round(sum(_amounts) / len(_amounts))
+        if _avg > 20:
+            _cat_avgs.append({"category": _cat_name, "avg_spend": _avg})
+    _cat_avgs.sort(key=lambda c: c["avg_spend"], reverse=True)
+
+    st.markdown("### What You Can Control")
+    st.caption(
+        f"Drag sliders to see if your total fits inside "
+        f"${_spending_money:,.0f}. Only flexible categories — "
+        f"fixed bills are excluded."
+    )
+
+    _slider_values = {}
+    _typical_total = 0
+
+    for _cat in _cat_avgs[:8]:  # top 8 by average
+        _name = _cat["category"]
+        _avg = int(_cat["avg_spend"])
+        _typical_total += _avg
+
+        # Minimum: roughly 10% of average (floor for necessities)
+        _min_val = max(int(_avg * 0.1), 0)
+
+        _val = st.slider(
+            f"{_name} (typical ${_avg:,.0f})",
+            min_value=_min_val,
+            max_value=_avg,
+            value=_avg,
+            step=25,
+            key=f"whatif_{_name}",
+        )
+        _slider_values[_name] = _val
+
+    # ── Result card ───────────────────────────────────────────────────
+    _new_total = sum(_slider_values.values())
+    _total_cuts = _typical_total - _new_total
+    _gap = _new_total - _spending_money
+    _hits_target = _gap <= 0
+
+    # Visual result card
+    if _hits_target:
+        _bg = "linear-gradient(135deg, #f0fdf4, #dcfce7)"
+        _border = "#bbf7d0"
+        _headline_color = "#16a34a"
+        _headline = "✅ Fits!"
     else:
-        st.info("Upload more data to see scenario sliders.")
+        _bg = "linear-gradient(135deg, #fef2f2, #fee2e2)"
+        _border = "#fecaca"
+        _headline_color = "#ef4444"
+        _headline = f"${_gap:,.0f} over"
 
-    if total_cut > 0:
-        scenario_result = models.scenario_model(scenario_df, adjustments)
+    _cuts_badge = ""
+    if _total_cuts > 0:
+        _cuts_badge = (
+            f'<span style="font-size:0.7rem;font-weight:700;color:#16a34a;'
+            f'background:#f0fdf4;padding:3px 8px;border-radius:8px;">'
+            f'saving ${_total_cuts:,.0f}/mo</span>'
+        )
 
-        new_net = savings_status["projected_avg_net"] + total_cut
-        meets_target = new_net >= savings_target
+    # Progress bar: new total vs budget
+    _bar_pct = min((_new_total / (_spending_money * 2)) * 100, 100)
+    _bar_color = ("linear-gradient(90deg, #22c55e, #16a34a)" if _hits_target
+                  else "linear-gradient(90deg, #f59e0b, #ef4444)")
+    _marker_pct = (_spending_money / (_spending_money * 2)) * 100
 
-        _si1, _si2 = st.columns(2)
-        _si1.metric("Monthly Cuts", f"\\${total_cut:,}/mo")
-        _si2.metric("New Monthly Net", f"\\${new_net:,.0f}/mo",
-                  delta=f"+\\${total_cut:,} vs current")
-        _si3, _si4 = st.columns(2)
-        _si3.metric("Target Status", "Met" if meets_target else f"\\${savings_target - new_net:,.0f} short",
-                  delta="Hitting your target" if meets_target else "Needs more cuts",
-                  delta_color="normal" if meets_target else "inverse")
-        annual_impact = total_cut * 12
-        _si4.metric("Annual Impact", f"\\${annual_impact:,}")
+    _result_html = (
+        f'<div style="background:{_bg};border:1px solid {_border};'
+        f'border-radius:12px;padding:14px 16px;margin-top:10px;">'
 
-        # Link to goal ETAs
-        objectives = database.get_active_objectives(conn)
-        for obj in objectives:
-            target_val = obj["target"] or 0
-            if target_val > 0 and new_net > 0:
-                obj_history = database.get_objective_history(conn, obj["objective_id"])
-                current_val = obj_history[-1]["current_amount"] if obj_history else 0
-                if current_val < target_val:
-                    months_with_cuts = (target_val - current_val) / new_net
-                    months_without = (target_val - current_val) / max(savings_status["projected_avg_net"], 1) if savings_status["projected_avg_net"] > 0 else float('inf')
-                    eta_with = date.today() + timedelta(days=int(months_with_cuts * 30))
-                    saved_months = int(months_without - months_with_cuts) if months_without != float('inf') else 0
-                    if saved_months > 0:
-                        st.success(f"**{obj['label']}**: reach target by **{eta_with.strftime('%B %Y')}** — **{saved_months} months sooner**")
-                    else:
-                        st.info(f"**{obj['label']}**: reach target by **{eta_with.strftime('%B %Y')}**")
+        # Headline row
+        f'<div style="display:flex;justify-content:space-between;'
+        f'align-items:center;margin-bottom:8px;">'
+        f'<span style="font-size:1.3rem;font-weight:800;color:{_headline_color};">'
+        f'{_headline}</span>{_cuts_badge}</div>'
 
-        # Comparison chart
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=scenario_df["month"], y=scenario_df["cumulative"], mode="lines", name="Current Path",
-            line=dict(color=PALETTE["gray"], dash="dash", width=2),
-            hovertemplate="Current: $%{y:,.0f}<extra></extra>",
-        ))
-        fig.add_trace(go.Scatter(
-            x=scenario_result["month"], y=scenario_result["cumulative"], mode="lines", name="With Cuts",
-            line=dict(color=PALETTE["green"], width=3),
-            fill="tonexty", fillcolor="rgba(34,197,94,0.06)",
-            hovertemplate="Scenario: $%{y:,.0f}<extra></extra>",
-        ))
-        fig.add_hline(y=0, line_color=PALETTE["gray_light"], line_width=1)
-        fig.update_layout(**CHART_LAYOUT, height=420,
-                         legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                         yaxis=dict(title="Cumulative Savings ($)", gridcolor="#f3f4f6", tickformat="$,.0f"),
-                         xaxis=dict(gridcolor="#f3f4f6", dtick="M6"))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        # Progress bar
+        f'<div style="position:relative;margin-bottom:16px;">'
+        f'<div style="height:12px;background:#e5e7eb;border-radius:6px;overflow:hidden;">'
+        f'<div style="height:100%;width:{_bar_pct}%;background:{_bar_color};'
+        f'border-radius:6px;transition:width 0.3s;"></div></div>'
+        # Budget marker
+        f'<div style="position:absolute;top:-2px;left:{_marker_pct}%;'
+        f'width:3px;height:16px;background:#1a1a2e;border-radius:2px;"></div>'
+        f'<div style="position:absolute;top:16px;left:{_marker_pct}%;'
+        f'transform:translateX(-50%);font-size:0.55rem;color:#888;">'
+        f'${_spending_money:,.0f}</div></div>'
+
+        # Totals
+        f'<div style="display:flex;justify-content:space-between;'
+        f'font-size:0.82rem;color:#555;margin-top:6px;">'
+        f'<span>New total: <b>${_new_total:,.0f}</b></span>'
+        f'<span>Budget: <b>${_spending_money:,.0f}</b></span></div>'
+    )
+
+    # Context message
+    if _hits_target:
+        _buffer = _spending_money - _new_total
+        _total_saved = _savings_target + _buffer
+        _result_html += (
+            f'<div style="font-size:0.78rem;color:#166534;margin-top:8px;'
+            f'line-height:1.4;">These cuts would save ~${_total_saved:,.0f}/mo total.'
+        )
+        if _buffer > 0:
+            _result_html += f' That\'s ${_buffer:,.0f} buffer beyond your target.'
+        _result_html += '</div>'
+    elif _total_cuts > 0:
+        _result_html += (
+            f'<div style="font-size:0.78rem;color:#991b1b;margin-top:8px;'
+            f'line-height:1.4;">Still ${_gap:,.0f} over. Try another category, '
+            f'or consider whether ${_savings_target:,.0f}/mo target is realistic '
+            f'right now.</div>'
+        )
+    else:
+        _result_html += (
+            f'<div style="font-size:0.78rem;color:#991b1b;margin-top:8px;'
+            f'line-height:1.4;">Typical spending is '
+            f'${_typical_total - _spending_money:,.0f}/mo above budget. '
+            f'Drag the sliders to find which cuts close the gap.</div>'
+        )
+
+    _result_html += '</div>'
+    st.markdown(_result_html, unsafe_allow_html=True)
 
     conn.close()

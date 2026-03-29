@@ -1,6 +1,7 @@
 """Transactions page — Upload statements, browse, fix categories."""
 
 import re
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -17,6 +18,28 @@ import database
 import pdf_parser
 from shared.charts import CHART_LAYOUT, CATEGORY_PALETTE
 from shared.state import get_conn, get_advisor, normalize_date, normalize_transactions
+
+# ── Spending-type classification (shared across the page) ─────────────
+_muted_cats = set(getattr(config, 'MUTED_CATEGORIES', []))
+_fixed_cats = {"Housing & Utilities", "Debt Payments", "Family Support",
+               "Transportation", "Phone & Internet", "Car Insurance"}
+_fixed_cats.update(getattr(config, 'MONARCH_FIXED_MAP', {}).keys())
+
+
+def _get_tag(category):
+    if category in _muted_cats:
+        return "muted"
+    elif category in _fixed_cats:
+        return "fixed"
+    else:
+        return "flex"
+
+
+_TAG_PILLS = {
+    "flex":  '<span style="background:#22c55e22;color:#16a34a;padding:1px 8px;border-radius:10px;font-size:0.82em">flex</span>',
+    "fixed": '<span style="background:#71717a22;color:#71717a;padding:1px 8px;border-radius:10px;font-size:0.82em">fixed</span>',
+    "muted": '<span style="background:#ef444422;color:#ef4444;padding:1px 8px;border-radius:10px;font-size:0.82em">muted</span>',
+}
 
 
 def transactions_page():
@@ -351,7 +374,7 @@ def transactions_page():
         with _fc4:
             cat = st.selectbox("Category", ["All"] + active_categories)
 
-        _exclude_cats = {"Transfers & Payments", "Credit Card Payments"}
+        # FIX 2: Use MUTED_CATEGORIES from config instead of hardcoded set
         hide_transfers = st.checkbox("Hide transfers & CC payments", value=True)
 
         txns = database.get_transactions(
@@ -361,19 +384,101 @@ def transactions_page():
         )
         if txns:
             df = pd.DataFrame([dict(t) for t in txns])
+
+            # FIX 1: Add spending-type Tag column
+            df["tag"] = df["category"].apply(_get_tag)
+
+            # FIX 2: Filter using MUTED_CATEGORIES
             if hide_transfers and cat == "All":
-                df = df[~df["category"].isin(_exclude_cats)]
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Spent", f"${abs(df[df['amount']<0]['amount'].sum()):,.0f}")
-            c2.metric("Credits", f"${df[df['amount']>0]['amount'].sum():,.0f}")
-            c3.metric("Count", len(df))
+                df = df[~df["category"].isin(_muted_cats)]
+
+            # FIX 3: Monthly spending summary vs lifetime totals
+            _from_mo = start.strftime("%Y-%m")
+            _to_mo = end.strftime("%Y-%m")
+            _single_month = (_from_mo == _to_mo)
+
+            if _single_month:
+                savings_target = int(database.get_setting(conn, "monthly_savings_target", "2000"))
+                _flex_total = abs(df[(df["amount"] < 0) & (~df["category"].isin(_fixed_cats)) & (~df["category"].isin(_muted_cats))]["amount"].sum())
+                _fixed_total = abs(df[(df["amount"] < 0) & (df["category"].isin(_fixed_cats))]["amount"].sum())
+
+                _spending_money = sum(
+                    v["monthly_net"] for v in config.INCOME.values() if isinstance(v, dict) and "monthly_net" in v
+                ) - sum(config.FIXED_MONTHLY_EXPENSES.values()) - savings_target
+
+                _c1, _c2, _c3 = st.columns(3)
+                _c1.metric("Flexible Spending", f"${_flex_total:,.0f}",
+                           delta=f"of ${_spending_money:,.0f} budget",
+                           delta_color="inverse")
+                _c2.metric("Fixed Bills", f"${_fixed_total:,.0f}")
+                _c3.metric("Transactions", f"{len(df)}")
+            else:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Spent", f"${abs(df[df['amount']<0]['amount'].sum()):,.0f}")
+                c2.metric("Credits", f"${df[df['amount']>0]['amount'].sum():,.0f}")
+                c3.metric("Count", len(df))
+
+            # FIX 1: Build display table with Tag pill column
+            display_df = df[["date", "description", "amount", "category", "tag", "account_id"]].copy()
+            display_df.columns = ["Date", "Description", "Amount", "Category", "Type", "Account"]
 
             st.dataframe(
-                df[["date", "description", "amount", "category", "account_id"]].rename(
-                    columns={"date": "Date", "description": "Description", "amount": "Amount", "category": "Category", "account_id": "Account"}
-                ),
+                display_df,
                 use_container_width=True, hide_index=True, height=500,
+                column_config={
+                    "Amount": st.column_config.NumberColumn(format="$%.2f"),
+                },
             )
+
+            # FIX 4: Flag merchants in multiple categories
+            _merchant_cats = defaultdict(set)
+            for _, row in df[df["amount"] < 0].iterrows():
+                _clean = row["description"].split("*")[0].split("#")[0].strip()[:20]
+                _merchant_cats[_clean].add(row["category"])
+
+            _multi_cat = {m: cats for m, cats in _merchant_cats.items() if len(cats) > 1}
+            if _multi_cat:
+                with st.expander(f"⚠️ {len(_multi_cat)} merchants in multiple categories"):
+                    for _merchant, _cats in sorted(_multi_cat.items()):
+                        st.markdown(f'**{_merchant}** → {", ".join(sorted(_cats))}')
+                    st.caption(
+                        "These merchants are split across categories. "
+                        "Use 'Recategorize with Claude' to clean them up."
+                    )
+
+            # FIX 5: Detect possible fixed bills not in config
+            try:
+                _recurring = conn.execute("""
+                    SELECT description, category,
+                           COUNT(DISTINCT strftime('%Y-%m', date)) as months,
+                           ROUND(AVG(ABS(amount)), 2) as avg_amount
+                    FROM transactions
+                    WHERE amount < 0
+                      AND date >= date('now', '-6 months')
+                    GROUP BY description, category
+                    HAVING months >= 4 AND avg_amount > 50
+                    ORDER BY avg_amount DESC
+                """).fetchall()
+
+                _not_in_fixed = [
+                    r for r in _recurring
+                    if r["category"] not in _fixed_cats
+                    and r["category"] not in _muted_cats
+                ]
+
+                if _not_in_fixed:
+                    with st.expander(f"📋 {len(_not_in_fixed)} possible fixed bills not configured"):
+                        for r in _not_in_fixed[:10]:
+                            st.markdown(
+                                f'**{r["description"][:30]}** — ${r["avg_amount"]:,.0f}/mo '
+                                f'({r["months"]} months) — {r["category"]}'
+                            )
+                        st.caption(
+                            "These merchants appear monthly with consistent amounts. "
+                            "Consider adding them to Fixed Monthly Bills in Setup."
+                        )
+            except Exception:
+                pass  # non-critical feature
 
             csv_data = df.to_csv(index=False)
             st.download_button("Export CSV", csv_data, "transactions.csv", "text/csv")
@@ -391,8 +496,11 @@ def transactions_page():
         st.markdown(f"**{cat_stats['coverage_pct']}%** of spending transactions are categorized. "
                     f"**{cat_stats['other_count']}** transactions remain as 'Other'.")
 
+        # FIX 6: Build active categories, respecting the hide-transfers filter
         st.markdown("#### Category Distribution")
         _active_cats = category_engine.get_active_categories(conn)
+        if hide_transfers:
+            _active_cats = [c for c in _active_cats if c not in _muted_cats]
         _active_placeholder = ",".join(f"'{c}'" for c in _active_cats)
         cat_rows = conn.execute(f"""
             SELECT category, COUNT(*) as txn_count, ABS(SUM(amount)) as total_spend
