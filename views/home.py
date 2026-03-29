@@ -99,19 +99,29 @@ def home_page():
     _fixed_cats.update(config.MONARCH_FIXED_MAP.keys())
     _muted_cats = set(getattr(config, 'MUTED_CATEGORIES', []))
 
-    # Compute spending totals EXCLUDING muted categories entirely
+    # Merge categories (e.g., "Education" into "Childcare & Education")
+    _merges = getattr(config, 'CATEGORY_MERGES', {})
+    _merge_sources = set()
+    for _sources in _merges.values():
+        _merge_sources.update(_sources)
+
+    # CRITICAL: Filter month_breakdown BEFORE any math
+    # Remove muted categories and merge sources entirely
+    month_breakdown = [
+        c for c in month_breakdown
+        if c["category"] not in _muted_cats
+        and c["category"] not in _merge_sources
+    ]
+
+    # Recalculate total_spent WITHOUT muted categories
+    total_spent = sum(abs(c["total"]) for c in month_breakdown)
+
+    # Compute fixed vs discretionary from the already-filtered breakdown
     _txn_fixed = sum(
         abs(c["total"]) for c in month_breakdown
         if c["category"] in _fixed_cats
-        and c["category"] not in _muted_cats
     )
-    _txn_discretionary = sum(
-        abs(c["total"]) for c in month_breakdown
-        if c["category"] not in _fixed_cats
-        and c["category"] not in _muted_cats
-    )
-    # Recalculate total_spent without muted for display purposes
-    total_spent = _txn_fixed + _txn_discretionary
+    _txn_discretionary = total_spent - _txn_fixed
     _effective_fixed = max(_fixed_costs, _txn_fixed)
     _total_outflow = _effective_fixed + _txn_discretionary
     _budget_limit = _monthly_income - savings_target

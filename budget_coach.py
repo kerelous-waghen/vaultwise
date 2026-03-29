@@ -32,13 +32,23 @@ def _get_muted():
 # ═══════════════════════════════════════════════════════════════
 
 def _get_flex_categories(conn, fixed_cats):
-    """Flexible (non-fixed, non-muted) categories with budget status."""
+    """Get budget status for flexible (non-fixed, non-muted) categories.
+    Also handles: merging duplicate categories, hiding $0 categories."""
     all_status = spending_intelligence.get_category_budget_status(conn)
     muted = _get_muted()
+    merges = getattr(config, 'CATEGORY_MERGES', {})
+    merge_sources = set()
+    for sources in merges.values():
+        merge_sources.update(sources)
+
+    hide_zero = getattr(config, 'HIDE_ZERO_CATEGORIES', True)
+
     flex = [
         s for s in all_status
         if s["category"] not in fixed_cats
         and s["category"] not in muted
+        and s["category"] not in merge_sources  # hide merged-away categories
+        and (not hide_zero or s["current_spend"] > 0)  # hide $0 categories
     ]
     flex.sort(key=lambda x: x["current_spend"], reverse=True)
     return flex
@@ -186,6 +196,10 @@ def _build_prompt(flex_status, conn, month_key, sel_year, sel_month,
         f"FORECASTS:\n"
         + ("\n".join(fc_lines) if fc_lines else "None available.") + "\n\n"
         f"EXCLUDED (already removed from the data above): {excluded}\n\n"
+        "DUPLICATE MERCHANTS: Check if any merchant appears in multiple "
+        "categories in the data above. If so, mention it in the relevant "
+        "category notes (e.g., 'Note: Amazon also appears in Other Shopping'). "
+        "This helps the user understand their categorization.\n\n"
         "RETURN a JSON object with:\n"
         '1. "headline": 8 words max. Reference spending money, not income.\n'
         '2. "body": 3-5 sentences. Frame everything relative to the '
@@ -199,9 +213,10 @@ def _build_prompt(flex_status, conn, month_key, sel_year, sel_month,
         '"normal" | "under pace" | "low"\n'
         '   - "badge_icon": single emoji\n'
         '   - "color": "#dc2626" | "#f59e0b" | "#22c55e" | "#6b7280"\n'
-        '   - "note": one sentence. Mention amount relative to typical. '
-        'If merchant appears miscategorized (e.g. Amazon in two categories), '
-        'note it briefly.\n\n'
+        '   - "note": one sentence. Say "$X actual vs $Y expected" then '
+        'brief context. If a merchant appears in multiple categories '
+        '(e.g., Amazon in both Online Shopping and Other Shopping, or '
+        'Anthropic in multiple categories), note the duplication.\n\n'
         "SORT: Most concerning first (way over → elevated → normal → low).\n\n"
         "CATEGORY NOTE: Some merchants may appear in multiple categories "
         "(e.g., Amazon in both 'Online Shopping' and 'Other Shopping'). "
@@ -420,8 +435,8 @@ def _render_category_card(cat_info, spent, typical, escape_fn):
         # Row 3: note + typical
         f'<div style="font-size:0.78rem;color:#666;line-height:1.35;">'
         f'{note}</div>'
-        f'<div style="font-size:0.7rem;color:#bbb;margin-top:2px;">'
-        f'typical ~\\${typical:,.0f}</div>'
+        f'<div style="font-size:0.72rem;color:#bbb;margin-top:2px;">'
+        f'\\${spent:,.0f} actual vs \\${typical:,.0f} expected</div>'
 
         f'</div>',
         unsafe_allow_html=True,
@@ -446,64 +461,43 @@ def _render_detail_expander(cat_name, hist, forecast, merchants, spent,
             f'<div style="font-weight:700;font-size:0.9rem;">{percentile:.0f}th</div></div>'
             f'</div>', unsafe_allow_html=True)
 
-        # Sparkline — always show, even with sparse data
-        if hist["values"]:
-            if len(hist["values"]) == 1:
-                # Only one data point: show as a single bar instead
-                fig = go.Figure()
-                fig.add_trace(go.Bar(
-                    x=hist["labels"],
-                    y=hist["values"],
-                    marker_color=color,
-                    hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
-                ))
-                fig.update_layout(
-                    height=80,
-                    margin=dict(t=5, b=25, l=45, r=10),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#aaa")),
-                    yaxis=dict(
-                        showgrid=True, gridcolor="#f5f5f5",
-                        tickfont=dict(size=9, color="#bbb"),
-                        tickformat="$,.0f", zeroline=False,
-                    ),
-                    showlegend=False,
-                )
-                st.plotly_chart(fig, use_container_width=True,
-                                config={"displayModeBar": False})
-            else:
-                fill_rgba = _hex_to_rgba(color, 0.08)
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=hist["labels"],
-                    y=hist["values"],
-                    mode="lines+markers",
-                    line=dict(color=color, width=2.5, shape="spline"),
-                    marker=dict(size=5, color=color),
-                    fill="tozeroy",
-                    fillcolor=fill_rgba,
-                    hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
-                ))
-                fig.update_layout(
-                    height=100,
-                    margin=dict(t=5, b=25, l=45, r=10),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#aaa"),
-                               type="category"),
-                    yaxis=dict(
-                        showgrid=True, gridcolor="#f5f5f5",
-                        tickfont=dict(size=9, color="#bbb"),
-                        tickformat="$,.0f", zeroline=False,
-                    ),
-                    showlegend=False,
-                    hovermode="x",
-                )
-                st.plotly_chart(fig, use_container_width=True,
-                                config={"displayModeBar": False})
+        # Sparkline — always show something
+        if hist["values"] and len(hist["values"]) >= 2:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=hist["labels"],
+                y=hist["values"],
+                mode="lines+markers",
+                line=dict(color=color, width=2.5, shape="spline"),
+                marker=dict(size=5, color=color),
+                fill="tozeroy",
+                fillcolor=_hex_to_rgba(color, 0.08),
+                hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
+            ))
+            fig.update_layout(
+                height=110,
+                margin=dict(t=5, b=25, l=45, r=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#aaa")),
+                yaxis=dict(
+                    showgrid=True, gridcolor="#f5f5f5",
+                    tickfont=dict(size=9, color="#bbb"),
+                    tickformat="$,.0f", zeroline=False,
+                ),
+                showlegend=False,
+                hovermode="x",
+            )
+            st.plotly_chart(fig, use_container_width=True,
+                            config={"displayModeBar": False})
+        elif hist["values"] and len(hist["values"]) == 1:
+            st.metric(
+                hist["labels"][0],
+                f"${hist['values'][0]:,.0f}",
+                help="Only one month of data available",
+            )
         else:
-            st.caption("No spending history yet for this category.")
+            st.caption("No spending history for this category yet.")
 
         # Forecast
         if forecast:
@@ -663,10 +657,13 @@ def render(conn, selected_month, sel_year, sel_month,
         median_val = fs["monthly_median"]
         percentile = fs["percentile"]
 
-        # Claude's analysis (or fallback)
+        # Claude's analysis (or fallback with actual vs expected)
         ci = claude_cats.get(cat_name, {
-            "name": cat_name, "badge": "—", "badge_icon": "",
-            "color": "#6b7280", "note": f"${spent:,.0f} spent",
+            "name": cat_name,
+            "badge": "low" if spent < typical * 0.5 else ("normal" if spent <= typical * 1.3 else "elevated"),
+            "badge_icon": "\U0001f4c9" if spent < typical * 0.5 else ("\u2705" if spent <= typical * 1.3 else "\u26a0\ufe0f"),
+            "color": "#22c55e" if spent <= typical else ("#f59e0b" if spent <= typical * 1.5 else "#dc2626"),
+            "note": f"${spent:,.0f} actual vs ${typical:,.0f} expected",
         })
 
         # Render collapsed card
