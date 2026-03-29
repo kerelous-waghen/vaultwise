@@ -51,6 +51,10 @@ if not hasattr(_this, "INCOME_LABELS"):
     INCOME_LABELS = {}
 if not hasattr(_this, "FIXED_BILL_GROUPS"):
     FIXED_BILL_GROUPS = {}
+if not hasattr(_this, "MUTED_CATEGORIES"):
+    MUTED_CATEGORIES = []
+if not hasattr(_this, "AUTO_RECATEGORIZE_DAYS"):
+    AUTO_RECATEGORIZE_DAYS = 0
 
 # ---------------------------------------------------------------------------
 # Computed values from private data

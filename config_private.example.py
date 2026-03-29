@@ -80,3 +80,18 @@ TELEGRAM_USERS = {
         "accounts": ["bank_1234", "joint_checking"],
     },
 }
+
+# Maps Monarch category names to fixed bill labels (excluded from spending cards)
+MONARCH_FIXED_MAP = {}
+
+# Categories hidden from spending breakdown (not real spending)
+MUTED_CATEGORIES = []
+
+# Display labels for income sources (keeps names out of views/)
+INCOME_LABELS = {}
+
+# Groups for the fixed bills table in the breakdown expander
+FIXED_BILL_GROUPS = {}
+
+# Auto-recategorize interval (days, 0=disabled)
+AUTO_RECATEGORIZE_DAYS = 0

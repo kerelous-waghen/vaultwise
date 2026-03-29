@@ -175,7 +175,9 @@ def home_page():
 
     # ── 3. SPENDING COACH — Claude-driven summary + category cards ────
     _budget_status = spending_intelligence.get_category_budget_status(conn)
-    _flex_status = [s for s in _budget_status if s["category"] not in _fixed_cats]
+    _muted = set(getattr(config, 'MUTED_CATEGORIES', []))
+    _flex_status = [s for s in _budget_status
+                    if s["category"] not in _fixed_cats and s["category"] not in _muted]
     _flex_status.sort(key=lambda x: x["current_spend"], reverse=True)
 
     # Decompose "Other" by merchant
@@ -217,7 +219,7 @@ def home_page():
         _cat_name = _fs["category"]
         _hist_rows = database.get_category_monthly_history(conn, _cat_name, months=6)
         _hist_data[_cat_name] = {
-            "months": [r["month"][-2:] for r in _hist_rows],
+            "months": [_mn[int(r["month"][5:7])][:3] for r in _hist_rows],
             "values": [round(abs(r["total"])) for r in _hist_rows],
         }
 
@@ -234,7 +236,8 @@ def home_page():
     _excluded_list = ", ".join(sorted(_fixed_cats))
 
     # ── Call Claude for summary + per-category interpretation ──
-    _coach_key = f"coach_{selected_month}_{int(_txn_discretionary)}"
+    _sel_day = date.today().day if _days_left > 0 else _days_in_month
+    _coach_key = f"coach_{selected_month}_{int(_txn_discretionary)}_{_sel_day}"
     if _coach_key not in st.session_state:
         st.session_state[_coach_key] = None
 
@@ -254,8 +257,7 @@ def home_page():
                         f"- Spending money: ${_disc_budget:,.0f}\n"
                         f"- Spent so far: ${_txn_discretionary:,.0f}\n"
                         f"- Remaining: ${_discretionary_left:,.0f}\n"
-                        f"- Day {date.today().day} of {_days_in_month} "
-                        f"({_days_left} days left)\n\n"
+                        f"- {'Day ' + str(date.today().day) + ' of ' + str(_days_in_month) + ' (' + str(_days_left) + ' days left)' if _days_left > 0 else 'Viewing ' + month_display + ' (completed month, all spending is final)'}\n\n"
                         f"FLEXIBLE SPENDING BY CATEGORY:\n{_spending_lines}\n\n"
                         f"{_other_detail}\n\n"
                         f"FORECASTS (Prophet, next month):\n"
@@ -277,6 +279,8 @@ def home_page():
                         "   - bar_pct: 0-100, how full the bar should be "
                         "(100 = at or above typical spend)\n"
                         "   - one_liner: one sentence about this category\n\n"
+                        "Sort categories with the most concerning ones first "
+                        "(way over, elevated, hot pace) and normal/low ones last.\n\n"
                         "Return ONLY valid JSON:\n"
                         '{"headline": "10 words max summary",'
                         '"status": "on_track|watch|over",'
@@ -305,8 +309,25 @@ def home_page():
                         ],
                     }
 
-    # ── Render Claude summary ─────────────────────────────────────────
+    # ── Sort categories by severity ───────────────────────────────────
     _coach = st.session_state.get(_coach_key)
+    if _coach and "categories" in _coach:
+        _severity_order = {"way over": 0, "elevated": 1, "hot": 2, "high": 2,
+                           "one-time": 3, "spike": 3, "normal": 4, "under": 5, "low": 6}
+        for _cc in _coach.get("categories", []):
+            _match = next((s for s in _flex_status if s["category"] == _cc["name"]), None)
+            if _match:
+                _cc["_amount"] = _match["current_spend"]
+        def _badge_sort(c):
+            badge = c.get("badge", "normal").lower()
+            sev = 7
+            for k, v in _severity_order.items():
+                if k in badge:
+                    sev = v; break
+            return (sev, -c.get("_amount", 0))
+        _coach["categories"].sort(key=_badge_sort)
+
+    # ── Render Claude summary ─────────────────────────────────────────
     if _coach:
         _sc = _coach.get("summary_color", "#6b7280")
         st.markdown(
@@ -353,62 +374,84 @@ def home_page():
             else:
                 _badge_bg, _badge_fg = "#f5f5f5", "#888"
 
+            # Card background tint for problem categories
+            if any(k in _badge.lower() for k in ("way over", "elevated")):
+                _card_bg = "#fef2f2"
+                _card_border = _bar_color
+            elif any(k in _badge.lower() for k in ("hot", "one-time", "spike")):
+                _card_bg = "#fffbeb"
+                _card_border = "#f59e0b"
+            else:
+                _card_bg = "#ffffff"
+                _card_border = "#eae7e1"
+
             # Collapsed card (always visible)
             st.markdown(
-                f'<div style="background:#fff;border:1px solid #eae7e1;'
-                f'border-radius:12px;padding:10px 13px;margin-bottom:2px;">'
+                f'<div style="background:{_card_bg};border:1px solid {_card_border};'
+                f'border-left:4px solid {_bar_color};'
+                f'border-radius:12px;padding:12px 14px;margin-bottom:4px;">'
                 f'<div style="display:flex;justify-content:space-between;'
-                f'align-items:center;margin-bottom:4px;">'
-                f'<div style="display:flex;align-items:center;gap:6px;'
-                f'flex:1;overflow:hidden;">'
-                f'<span style="font-weight:700;font-size:0.88rem;color:#1a1a2e;'
+                f'align-items:center;gap:8px;">'
+                f'<div style="display:flex;align-items:center;gap:8px;'
+                f'flex:1;overflow:hidden;min-width:0;">'
+                f'<span style="font-weight:700;font-size:0.92rem;color:#1a1a2e;'
                 f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
                 f'{_cat_name}</span>'
-                f'<span style="font-size:0.62rem;font-weight:700;padding:2px 7px;'
-                f'border-radius:10px;white-space:nowrap;flex-shrink:0;'
+                f'<span style="font-size:0.7rem;font-weight:700;padding:3px 8px;'
+                f'border-radius:12px;white-space:nowrap;flex-shrink:0;'
                 f'background:{_badge_bg};color:{_badge_fg};">'
                 f'{_badge_icon} {_badge}</span></div>'
-                f'<span style="font-weight:800;font-size:0.92rem;color:{_bar_color};'
+                f'<span style="font-weight:800;font-size:1rem;color:{_bar_color};'
                 f'white-space:nowrap;flex-shrink:0;">\\${_spent:,.0f}</span></div>'
-                f'<div style="height:4px;border-radius:2px;background:#eee;'
-                f'overflow:hidden;margin:3px 0;">'
+                f'<div style="height:6px;border-radius:3px;background:#eee;'
+                f'overflow:hidden;margin:8px 0 6px;">'
                 f'<div style="height:100%;width:{min(_bar_pct, 100)}%;'
-                f'background:{_bar_color};border-radius:2px;"></div></div>'
-                f'<div style="font-size:0.76rem;color:#999;margin-top:3px;">'
-                f'{escape_dollars(_one_liner)} · typical ~\\${_typical:,.0f}</div>'
+                f'background:{_bar_color};border-radius:3px;"></div></div>'
+                f'<div style="font-size:0.8rem;color:#666;line-height:1.4;">'
+                f'{escape_dollars(_one_liner)}</div>'
+                f'<div style="font-size:0.72rem;color:#aaa;margin-top:2px;">'
+                f'typical ~\\${_typical:,.0f}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
             # Expandable detail
             with st.expander(f"Details: {_cat_name}", expanded=False):
-                _sc1, _sc2, _sc3 = st.columns(3)
-                _sc1.metric("Typical", f"${_typical:,.0f}")
-                _sc2.metric("Median", f"${_median:,.0f}")
-                _sc3.metric("Percentile", f"{_pctile}th")
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-around;text-align:center;'
+                    f'padding:6px 0;margin-bottom:4px;">'
+                    f'<div><div style="font-size:0.65rem;color:#aaa;text-transform:uppercase;">Typical</div>'
+                    f'<div style="font-weight:700;font-size:0.9rem;">\\${_typical:,.0f}</div></div>'
+                    f'<div><div style="font-size:0.65rem;color:#aaa;text-transform:uppercase;">Median</div>'
+                    f'<div style="font-weight:700;font-size:0.9rem;">\\${_median:,.0f}</div></div>'
+                    f'<div><div style="font-size:0.65rem;color:#aaa;text-transform:uppercase;">Percentile</div>'
+                    f'<div style="font-weight:700;font-size:0.9rem;">{_pctile:.0f}th</div></div>'
+                    f'</div>', unsafe_allow_html=True)
 
                 # Sparkline
                 _hist = _hist_data.get(_cat_name, {})
                 _spark_vals = _hist.get("values", [])
                 _spark_months = _hist.get("months", [])
                 if len(_spark_vals) >= 2:
+                    _fill_rgba = f"rgba({int(_bar_color[1:3],16)},{int(_bar_color[3:5],16)},{int(_bar_color[5:7],16)},0.08)" if _bar_color.startswith("#") and len(_bar_color) == 7 else "rgba(107,114,128,0.08)"
                     _spark_fig = go.Figure()
                     _spark_fig.add_trace(go.Scatter(
                         x=_spark_months, y=_spark_vals,
                         mode="lines+markers",
-                        line=dict(color=_bar_color, width=2.5),
-                        marker=dict(size=6, color=_bar_color),
-                        fill="tozeroy",
-                        fillcolor=f"rgba({int(_bar_color[1:3],16)},{int(_bar_color[3:5],16)},{int(_bar_color[5:7],16)},0.06)" if _bar_color.startswith("#") and len(_bar_color) == 7 else "rgba(107,114,128,0.06)",
-                        hovertemplate="$%{y:,.0f}<extra></extra>",
+                        line=dict(color=_bar_color, width=2.5, shape="spline"),
+                        marker=dict(size=5, color=_bar_color),
+                        fill="tozeroy", fillcolor=_fill_rgba,
+                        hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
                     ))
                     _spark_fig.update_layout(
-                        height=120, margin=dict(t=10, b=20, l=40, r=10),
+                        height=100, margin=dict(t=5, b=25, l=45, r=10),
                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
-                        yaxis=dict(showgrid=True, gridcolor="#f0f0f0",
-                                   tickfont=dict(size=9), tickformat="$,.0f"),
-                        showlegend=False,
+                        xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#aaa"),
+                                   type="category"),
+                        yaxis=dict(showgrid=True, gridcolor="#f5f5f5",
+                                   tickfont=dict(size=9, color="#bbb"),
+                                   tickformat="$,.0f", zeroline=False),
+                        showlegend=False, hovermode="x",
                     )
                     st.plotly_chart(_spark_fig, use_container_width=True,
                                     config={"displayModeBar": False})
@@ -420,6 +463,14 @@ def home_page():
                     _fc_pred = _nxt.get("predicted", 0)
                     _fc_low = _nxt.get("lower", 0)
                     _fc_high = _nxt.get("upper", 0)
+                    # Sanity cap: don't show wild forecasts from spike overfitting
+                    _hv = _hist_data.get(_cat_name, {}).get("values", [])
+                    if _hv and len(_hv) >= 3:
+                        _hmed = sorted(_hv)[len(_hv) // 2]
+                        if _hmed > 0 and _fc_pred > _hmed * 3:
+                            _fc_pred = round(_hmed * 1.1)
+                            _fc_high = round(_hmed * 1.5)
+                            _fc_low = round(_hmed * 0.7)
                     st.markdown(
                         f'<div style="background:linear-gradient(135deg,#f0f4ff,#e8f0fe);'
                         f'border:1px solid #d4e0f7;border-radius:10px;padding:10px 12px;'
