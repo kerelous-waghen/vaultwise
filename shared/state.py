@@ -16,16 +16,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", confi
 
 def init_session():
     """Initialize session state defaults (call once from app.py)."""
-    for key, default in [
-        ("advisor", None),
-        ("session_id", str(uuid.uuid4())[:8]),
-        ("chat_history", []),
-        ("coach_data", None),
-        ("coach_accepted_guardrails", []),
-        ("coach_rejected_guardrails", {}),
-        ("coach_recovery_pace", None),
-        ("coach_stats_month", None),
-    ]:
+    for key, default in [("advisor", None), ("session_id", str(uuid.uuid4())[:8]), ("chat_history", [])]:
         if key not in st.session_state:
             st.session_state[key] = default
 

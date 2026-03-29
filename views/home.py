@@ -16,8 +16,8 @@ import config
 import database
 import models
 from shared.charts import CHART_LAYOUT, PALETTE, CATEGORY_PALETTE, SEVERITY_MAP, DIRECTION_ICONS, DEFAULT_TREND_DICT
-from shared.components import render_savings_gauge, render_category_card
-from components.budget_coach import render_budget_coach
+from shared.components import render_savings_gauge
+import spending_intelligence
 from shared.state import get_conn, get_advisor, escape_dollars
 
 
@@ -81,8 +81,11 @@ def home_page():
 
     with st.expander("Bonus income toggles", expanded=False):
         _bonus_col1, _bonus_col2 = st.columns(2)
-        _kero_bonus_on = _bonus_col1.checkbox("Include Kero bonus ($1,500/mo)", value=False, key="dash_kero_bonus")
-        _maggie_bonus_on = _bonus_col2.checkbox("Include Maggie bonus ($417/mo)", value=False, key="dash_maggie_bonus")
+        _income_keys = list(config.INCOME.keys())
+        _label_1 = config.INCOME_LABELS.get(_income_keys[0], {}).get("bonus_label", "Include primary bonus") if _income_keys else "Include primary bonus"
+        _label_2 = config.INCOME_LABELS.get(_income_keys[1] if len(_income_keys) > 1 else "", {}).get("bonus_label", "Include secondary bonus")
+        _kero_bonus_on = _bonus_col1.checkbox(_label_1, value=False, key="dash_kero_bonus")
+        _maggie_bonus_on = _bonus_col2.checkbox(_label_2, value=False, key="dash_maggie_bonus")
     _kero_bonus_val = _income_data.get("kero_bonus", 0) if isinstance(_income_data, dict) else 0
     _maggie_bonus_val = _income_data.get("maggie_bonus", 0) if isinstance(_income_data, dict) else 0
     if not _kero_bonus_on:
@@ -91,8 +94,9 @@ def home_page():
         _monthly_income -= _maggie_bonus_val
 
     _fixed_costs = sum(config.FIXED_MONTHLY_EXPENSES.values())
-    _fixed_cats = {"Housing & Utilities", "Debt Payments", "Giving & Church", "Family Support",
-                   "Transportation", "Childcare & Education", "Phone & Internet", "Car Insurance"}
+    _fixed_cats = {"Housing & Utilities", "Debt Payments", "Family Support", "Transportation",
+                   "Phone & Internet", "Car Insurance"}
+    _fixed_cats.update(config.MONARCH_FIXED_MAP.keys())
     _txn_fixed = sum(abs(c["total"]) for c in month_breakdown if c["category"] in _fixed_cats)
     _txn_discretionary = total_spent - _txn_fixed
     _effective_fixed = max(_fixed_costs, _txn_fixed)
@@ -165,17 +169,298 @@ def home_page():
         if _discretionary_left > 0:
             _pace_html = f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 16px;margin-bottom:12px;"><span style="font-size:1.1rem;font-weight:700;color:#22c55e;">💰 ${_daily_left:,.0f}/day</span> <span style="color:#6b7280;">for the next {_days_left} days to hit your ${savings_target:,} target</span></div>'
         else:
-            _pace_html = f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;margin-bottom:12px;"><span style="font-size:1.1rem;font-weight:700;color:#ef4444;">🛑 FREEZE spending</span> <span style="color:#6b7280;">for {_days_left} days — you\'re ${_over_budget:,.0f} over your discretionary budget</span></div>'
+            _freeze_detail = f" Keeping spending minimal for the last {_days_left} days stops it from growing." if _days_left > 0 else " The month is wrapping up."
+            _pace_html = f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;margin-bottom:12px;"><span style="font-size:1.1rem;font-weight:700;color:#ef4444;">💸 ${_over_budget:,.0f} from savings</span> <span style="color:#6b7280;">used this month.{_freeze_detail}</span></div>'
         st.markdown(_pace_html, unsafe_allow_html=True)
 
-    # ── 3. BUDGET COACH ────────────────────────────────────────────────
-    render_budget_coach(
-        conn=conn, selected_month=selected_month,
-        monthly_income=_monthly_income, fixed_costs=_effective_fixed,
-        savings_target=savings_target, disc_budget=_disc_budget,
-        txn_discretionary=_txn_discretionary, over_budget=_over_budget,
-        days_left=_days_left, month_breakdown=month_breakdown,
+    # ── 3. SPENDING COACH — Claude-driven summary + category cards ────
+    _budget_status = spending_intelligence.get_category_budget_status(conn)
+    _flex_status = [s for s in _budget_status if s["category"] not in _fixed_cats]
+    _flex_status.sort(key=lambda x: x["current_spend"], reverse=True)
+
+    # Decompose "Other" by merchant
+    _other_detail = ""
+    if any(s["category"] == "Other" for s in _flex_status):
+        _other_rows = conn.execute("""
+            SELECT description, SUM(ABS(amount)) as total, COUNT(*) as cnt
+            FROM transactions
+            WHERE strftime('%Y-%m', date) = ? AND category = 'Other' AND amount < 0
+            GROUP BY description ORDER BY total DESC LIMIT 5
+        """, (selected_month,)).fetchall()
+        if _other_rows:
+            _other_detail = "Breakdown of 'Other': " + ", ".join(
+                f"{r['description']}: ${r['total']:,.0f}" for r in _other_rows)
+
+    # Build spending data for Claude
+    _spending_lines = "\n".join(
+        f"- {s['category']}: ${s['current_spend']:,.0f} this month, "
+        f"typical ${s['monthly_average']:,.0f}, median ${s['monthly_median']:,.0f}, "
+        f"projected month-end ${s['projected_month_end']:,.0f}, "
+        f"percentile {s['percentile']}, savings potential ${s['savings_potential']:,.0f}"
+        for s in _flex_status[:12]
     )
+
+    # Pull Prophet forecasts
+    _forecast_lines = ""
+    for _fs in _flex_status[:8]:
+        _pf = analytics_cache.get_cached_prophet(conn, _fs["category"])
+        if _pf and _pf.get("forecast"):
+            _nxt = _pf["forecast"][0]
+            _forecast_lines += (
+                f"- {_fs['category']}: next month ${_nxt['predicted']:,.0f} "
+                f"(range ${_nxt.get('lower', 0):,.0f}–${_nxt.get('upper', 0):,.0f})\n"
+            )
+
+    # 6-month history per category (for sparklines)
+    _hist_data = {}
+    for _fs in _flex_status[:12]:
+        _cat_name = _fs["category"]
+        _hist_rows = database.get_category_monthly_history(conn, _cat_name, months=6)
+        _hist_data[_cat_name] = {
+            "months": [r["month"][-2:] for r in _hist_rows],
+            "values": [round(abs(r["total"])) for r in _hist_rows],
+        }
+
+    # Top merchants per category
+    _merchant_data = {}
+    for _fs in _flex_status[:12]:
+        _cat_name = _fs["category"]
+        _merch_rows = database.get_merchant_breakdown_for_month(conn, _cat_name, selected_month, limit=4)
+        _merchant_data[_cat_name] = [
+            {"name": r["name"][:28], "amount": round(abs(r["total"]))}
+            for r in _merch_rows
+        ]
+
+    _excluded_list = ", ".join(sorted(_fixed_cats))
+
+    # ── Call Claude for summary + per-category interpretation ──
+    _coach_key = f"coach_{selected_month}_{int(_txn_discretionary)}"
+    if _coach_key not in st.session_state:
+        st.session_state[_coach_key] = None
+
+    if st.session_state[_coach_key] is None:
+        advisor = get_advisor()
+        if advisor:
+            with st.spinner("Analyzing spending..."):
+                try:
+                    _prompt = (
+                        "You are a budget coach inside a personal finance app. "
+                        "Analyze this month's spending and generate a summary "
+                        "PLUS per-category insights.\n\n"
+                        f"BUDGET CONTEXT:\n"
+                        f"- Monthly income: ${_monthly_income:,.0f}\n"
+                        f"- Fixed bills: ${_effective_fixed:,.0f}\n"
+                        f"- Savings target: ${savings_target:,}/mo\n"
+                        f"- Spending money: ${_disc_budget:,.0f}\n"
+                        f"- Spent so far: ${_txn_discretionary:,.0f}\n"
+                        f"- Remaining: ${_discretionary_left:,.0f}\n"
+                        f"- Day {date.today().day} of {_days_in_month} "
+                        f"({_days_left} days left)\n\n"
+                        f"FLEXIBLE SPENDING BY CATEGORY:\n{_spending_lines}\n\n"
+                        f"{_other_detail}\n\n"
+                        f"FORECASTS (Prophet, next month):\n"
+                        f"{_forecast_lines if _forecast_lines else 'No forecast data.'}\n\n"
+                        f"EXCLUDED (fixed bills — never recommend cutting): {_excluded_list}\n\n"
+                        "GENERATE TWO THINGS:\n\n"
+                        "1. SUMMARY: A brief warm overview (3-5 sentences). "
+                        "If over budget, explain where the extra came from. "
+                        "If on track, be brief and encouraging. Use forecast data "
+                        "in your forward-looking sentence when relevant. "
+                        "Never suggest returning purchases or undoing transactions.\n\n"
+                        "2. PER-CATEGORY: For each flexible category, assign:\n"
+                        "   - badge: short label like 'normal', 'hot pace', "
+                        "'elevated', 'one-time', 'under pace', 'low'\n"
+                        "   - badge_icon: one emoji\n"
+                        "   - bar_color: hex color for the progress bar "
+                        "('#22c55e' green=fine, '#f59e0b' amber=watch, "
+                        "'#dc2626' red=over)\n"
+                        "   - bar_pct: 0-100, how full the bar should be "
+                        "(100 = at or above typical spend)\n"
+                        "   - one_liner: one sentence about this category\n\n"
+                        "Return ONLY valid JSON:\n"
+                        '{"headline": "10 words max summary",'
+                        '"status": "on_track|watch|over",'
+                        '"summary_color": "#hex for headline",'
+                        '"body": "3-5 sentence summary",'
+                        '"categories": [{"name": "category name",'
+                        '"badge": "normal","badge_icon": "✅",'
+                        '"bar_color": "#22c55e","bar_pct": 65,'
+                        '"one_liner": "brief note"}]}\n'
+                        "No markdown. No preamble. Just JSON."
+                    )
+                    _resp = advisor.generate_coach_response(_prompt, max_tokens=2048)
+                    st.session_state[_coach_key] = _resp
+                except Exception:
+                    st.session_state[_coach_key] = {
+                        "headline": "Spending summary",
+                        "status": "watch" if _over_budget > 0 else "on_track",
+                        "summary_color": "#f59e0b" if _over_budget > 0 else "#22c55e",
+                        "body": f"Spent ${_txn_discretionary:,.0f} of ${_disc_budget:,.0f} spending money.",
+                        "categories": [
+                            {"name": s["category"], "badge": "—", "badge_icon": "",
+                             "bar_color": "#6b7280",
+                             "bar_pct": min(int(s["pct_of_average"]), 100),
+                             "one_liner": f"${s['current_spend']:,.0f} spent"}
+                            for s in _flex_status[:10]
+                        ],
+                    }
+
+    # ── Render Claude summary ─────────────────────────────────────────
+    _coach = st.session_state.get(_coach_key)
+    if _coach:
+        _sc = _coach.get("summary_color", "#6b7280")
+        st.markdown(
+            f'<div style="background:{_sc}0a;border:1px solid {_sc}20;'
+            f'border-radius:12px;padding:10px 14px;margin-bottom:10px;">'
+            f'<div style="font-weight:700;font-size:0.9rem;color:#1a1a2e;'
+            f'margin-bottom:4px;">{escape_dollars(_coach.get("headline", ""))}'
+            f'</div>'
+            f'<div style="font-size:0.84rem;line-height:1.5;color:#555;">'
+            f'{escape_dollars(_coach.get("body", ""))}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Category Cards (ALWAYS visible) ───────────────────────────
+        st.markdown(
+            '<div style="font-size:0.68rem;color:#aaa;font-weight:700;'
+            'text-transform:uppercase;letter-spacing:0.6px;'
+            'margin:10px 0 6px 2px;">Your Spending Money Breakdown</div>',
+            unsafe_allow_html=True,
+        )
+        _claude_cats = {c["name"]: c for c in _coach.get("categories", [])}
+
+        for _fs in _flex_status:
+            _cat_name = _fs["category"]
+            _spent = _fs["current_spend"]
+            _typical = _fs["monthly_average"]
+            _median = _fs["monthly_median"]
+            _pctile = _fs["percentile"]
+
+            _ci = _claude_cats.get(_cat_name, {})
+            _badge = _ci.get("badge", "")
+            _badge_icon = _ci.get("badge_icon", "")
+            _bar_color = _ci.get("bar_color", "#6b7280")
+            _bar_pct = _ci.get("bar_pct", 50)
+            _one_liner = _ci.get("one_liner", "")
+
+            # Badge styling
+            if any(k in _badge for k in ("normal", "under", "low")):
+                _badge_bg, _badge_fg = "#f0fdf4", "#16a34a"
+            elif any(k in _badge for k in ("hot", "one-time", "spike")):
+                _badge_bg, _badge_fg = "#fffbeb", "#d97706"
+            elif any(k in _badge for k in ("elevated", "high", "over")):
+                _badge_bg, _badge_fg = "#fef2f2", "#dc2626"
+            else:
+                _badge_bg, _badge_fg = "#f5f5f5", "#888"
+
+            # Collapsed card (always visible)
+            st.markdown(
+                f'<div style="background:#fff;border:1px solid #eae7e1;'
+                f'border-radius:12px;padding:10px 13px;margin-bottom:2px;">'
+                f'<div style="display:flex;justify-content:space-between;'
+                f'align-items:center;margin-bottom:4px;">'
+                f'<div style="display:flex;align-items:center;gap:6px;'
+                f'flex:1;overflow:hidden;">'
+                f'<span style="font-weight:700;font-size:0.88rem;color:#1a1a2e;'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                f'{_cat_name}</span>'
+                f'<span style="font-size:0.62rem;font-weight:700;padding:2px 7px;'
+                f'border-radius:10px;white-space:nowrap;flex-shrink:0;'
+                f'background:{_badge_bg};color:{_badge_fg};">'
+                f'{_badge_icon} {_badge}</span></div>'
+                f'<span style="font-weight:800;font-size:0.92rem;color:{_bar_color};'
+                f'white-space:nowrap;flex-shrink:0;">\\${_spent:,.0f}</span></div>'
+                f'<div style="height:4px;border-radius:2px;background:#eee;'
+                f'overflow:hidden;margin:3px 0;">'
+                f'<div style="height:100%;width:{min(_bar_pct, 100)}%;'
+                f'background:{_bar_color};border-radius:2px;"></div></div>'
+                f'<div style="font-size:0.76rem;color:#999;margin-top:3px;">'
+                f'{escape_dollars(_one_liner)} · typical ~\\${_typical:,.0f}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            # Expandable detail
+            with st.expander(f"Details: {_cat_name}", expanded=False):
+                _sc1, _sc2, _sc3 = st.columns(3)
+                _sc1.metric("Typical", f"${_typical:,.0f}")
+                _sc2.metric("Median", f"${_median:,.0f}")
+                _sc3.metric("Percentile", f"{_pctile}th")
+
+                # Sparkline
+                _hist = _hist_data.get(_cat_name, {})
+                _spark_vals = _hist.get("values", [])
+                _spark_months = _hist.get("months", [])
+                if len(_spark_vals) >= 2:
+                    _spark_fig = go.Figure()
+                    _spark_fig.add_trace(go.Scatter(
+                        x=_spark_months, y=_spark_vals,
+                        mode="lines+markers",
+                        line=dict(color=_bar_color, width=2.5),
+                        marker=dict(size=6, color=_bar_color),
+                        fill="tozeroy", fillcolor=f"{_bar_color}10",
+                        hovertemplate="$%{y:,.0f}<extra></extra>",
+                    ))
+                    _spark_fig.update_layout(
+                        height=120, margin=dict(t=10, b=20, l=40, r=10),
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+                        yaxis=dict(showgrid=True, gridcolor="#f0f0f0",
+                                   tickfont=dict(size=9), tickformat="$,.0f"),
+                        showlegend=False,
+                    )
+                    st.plotly_chart(_spark_fig, use_container_width=True,
+                                    config={"displayModeBar": False})
+
+                # Forecast
+                _pf = analytics_cache.get_cached_prophet(conn, _cat_name)
+                if _pf and _pf.get("forecast"):
+                    _nxt = _pf["forecast"][0]
+                    _fc_pred = _nxt.get("predicted", 0)
+                    _fc_low = _nxt.get("lower", 0)
+                    _fc_high = _nxt.get("upper", 0)
+                    st.markdown(
+                        f'<div style="background:linear-gradient(135deg,#f0f4ff,#e8f0fe);'
+                        f'border:1px solid #d4e0f7;border-radius:10px;padding:10px 12px;'
+                        f'margin-bottom:10px;">'
+                        f'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">'
+                        f'<span style="font-size:0.65rem;color:#5b7bb4;font-weight:700;'
+                        f'text-transform:uppercase;letter-spacing:0.4px;">Next Month Forecast</span></div>'
+                        f'<div style="display:flex;align-items:baseline;gap:6px;">'
+                        f'<span style="font-size:1.15rem;font-weight:800;color:#1a4a8a;">'
+                        f'\\${_fc_pred:,.0f}</span>'
+                        f'<span style="font-size:0.72rem;color:#7fa3d4;">'
+                        f'\\${_fc_low:,.0f} – \\${_fc_high:,.0f}</span></div></div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # Top merchants
+                _merchs = _merchant_data.get(_cat_name, [])
+                if _merchs:
+                    st.markdown(
+                        '<div style="font-size:0.65rem;color:#bbb;font-weight:700;'
+                        'text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px;">'
+                        'Where It Went</div>',
+                        unsafe_allow_html=True,
+                    )
+                    for _m in _merchs:
+                        st.markdown(
+                            f'<div style="display:flex;justify-content:space-between;'
+                            f'padding:4px 0;border-bottom:1px solid #f5f3ef;font-size:0.82rem;">'
+                            f'<span style="color:#555;">{escape_dollars(_m["name"])}</span>'
+                            f'<span style="font-weight:700;color:#1a1a2e;">\\${_m["amount"]:,.0f}</span></div>',
+                            unsafe_allow_html=True,
+                        )
+
+        # Savings dip callout
+        if _over_budget > 0:
+            st.markdown(
+                f'<div style="background:#fef2f2;border:1px solid #fecaca;'
+                f'border-radius:10px;padding:9px 13px;margin-top:8px;'
+                f'font-size:0.84rem;color:#991b1b;">'
+                f'\\${_over_budget:,.0f} came from savings this month.</div>',
+                unsafe_allow_html=True,
+            )
 
     # Detailed financial breakdown
     _kero_net = _income_data.get("kero_net", 0) if isinstance(_income_data, dict) else 0
@@ -189,10 +474,13 @@ def home_page():
         _left, _right = st.columns(2)
         with _left:
             st.markdown("**💵 Money In**")
+            _ik = list(config.INCOME.keys())
+            _inc_label_1 = config.INCOME_LABELS.get(_ik[0], {}).get("label", "Primary") if _ik else "Primary"
+            _inc_label_2 = config.INCOME_LABELS.get(_ik[1] if len(_ik) > 1 else "", {}).get("label", "Secondary")
             _in_html = (
                 f'<table style="width:100%;font-size:0.9rem;border-collapse:collapse;">'
-                f'<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:4px 0;">Kero (Premera)</td><td style="text-align:right;font-weight:600;">${_kero_net:,.0f}</td></tr>'
-                f'<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:4px 0;">Maggie (Boeing)</td><td style="text-align:right;font-weight:600;">${_maggie_net:,.0f}</td></tr>'
+                f'<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:4px 0;">{_inc_label_1}</td><td style="text-align:right;font-weight:600;">${_kero_net:,.0f}</td></tr>'
+                f'<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:4px 0;">{_inc_label_2}</td><td style="text-align:right;font-weight:600;">${_maggie_net:,.0f}</td></tr>'
                 f'<tr style="border-bottom:2px solid #1a1a2e;"><td style="padding:6px 0;font-weight:700;">Total Income</td><td style="text-align:right;font-weight:700;font-size:1rem;">${_monthly_income:,.0f}</td></tr>'
                 f'</table>'
             )
@@ -200,28 +488,15 @@ def home_page():
 
             st.markdown("")
             st.markdown("**🏠 Fixed Monthly Bills**")
-            _known_keys = {
-                "Mortgage (Mr. Cooper 6.49%)", "Auto Loan (Chase #2102)", "Car Insurance (CCS Country)",
-                "Student Loan 1", "Student Loan 2", "Church (Zelle)", "Family Support (Nermeen)",
-                "Church (CC small donations)", "PSE Electric & Gas", "Water/Sewer (NUD)",
-                "Internet (Comcast/Xfinity)", "Garbage & Recycling", "T-Mobile", "Mint Mobile (normalized)",
-                "Gas (fuel)", "Auto Maintenance (normalized)", "Renters Insurance (AGI)",
-                "Digital Subscriptions", "Affirm", "CC Interest (card 3072)",
-                "Home Improvement (normalized)", "Travel (normalized)",
-            }
-            _fixed_groups = {
-                "Mortgage": config.FIXED_MONTHLY_EXPENSES.get("Mortgage (Mr. Cooper 6.49%)", 0),
-                "Car (loan + insurance)": config.FIXED_MONTHLY_EXPENSES.get("Auto Loan (Chase #2102)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Car Insurance (CCS Country)", 0),
-                "Student Loans": config.FIXED_MONTHLY_EXPENSES.get("Student Loan 1", 0) + config.FIXED_MONTHLY_EXPENSES.get("Student Loan 2", 0),
-                "Church & Family": config.FIXED_MONTHLY_EXPENSES.get("Church (Zelle)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Family Support (Nermeen)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Church (CC small donations)", 0),
-                "Utilities & Internet": config.FIXED_MONTHLY_EXPENSES.get("PSE Electric & Gas", 0) + config.FIXED_MONTHLY_EXPENSES.get("Water/Sewer (NUD)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Internet (Comcast/Xfinity)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Garbage & Recycling", 0),
-                "Phone (T-Mobile + Mint)": config.FIXED_MONTHLY_EXPENSES.get("T-Mobile", 0) + config.FIXED_MONTHLY_EXPENSES.get("Mint Mobile (normalized)", 0),
-                "Other fixed": config.FIXED_MONTHLY_EXPENSES.get("Gas (fuel)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Auto Maintenance (normalized)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Renters Insurance (AGI)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Digital Subscriptions", 0) + config.FIXED_MONTHLY_EXPENSES.get("Affirm", 0) + config.FIXED_MONTHLY_EXPENSES.get("CC Interest (card 3072)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Home Improvement (normalized)", 0) + config.FIXED_MONTHLY_EXPENSES.get("Travel (normalized)", 0),
-            }
+            _fixed_groups = {}
+            for _group_label, _expense_keys in config.FIXED_BILL_GROUPS.items():
+                _group_total = sum(config.FIXED_MONTHLY_EXPENSES.get(k, 0) for k in _expense_keys)
+                if _group_total > 0:
+                    _fixed_groups[_group_label] = _group_total
+            _all_grouped = {k for keys in config.FIXED_BILL_GROUPS.values() for k in keys}
             for _k, _v in config.FIXED_MONTHLY_EXPENSES.items():
-                if _k not in _known_keys and _v > 0:
-                    _short_name = _k.split("(")[0].strip()
-                    _fixed_groups[_short_name] = _v
+                if _k not in _all_grouped and _v > 0:
+                    _fixed_groups[_k.split("(")[0].strip()] = _v
             _bills_html = '<table style="width:100%;font-size:0.85rem;border-collapse:collapse;">'
             for label, amt in _fixed_groups.items():
                 _bills_html += f'<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:3px 0;color:#6b7280;">{label}</td><td style="text-align:right;">${amt:,.0f}</td></tr>'
@@ -398,118 +673,6 @@ def home_page():
         else:
             with st.chat_message("assistant"):
                 st.warning("Set your Anthropic API key in Settings to use the chat.")
-
-    # ── 7. CATEGORY CARDS (severity sorted, collapsed) ────────────────
-    st.divider()
-
-    # Claude preventive actions
-    @st.cache_data(ttl=300, show_spinner=False)
-    def _get_claude_preventive_actions(_month_key: str):
-        advisor = get_advisor()
-        if not advisor:
-            return {}
-        _conn = get_conn()
-        cats_payload = []
-        _mb = database.get_monthly_category_breakdown(_conn, _month_key)
-        for cd in _mb:
-            c = cd["category"]
-            _actual_spend = abs(cd.get("total", 0))
-            if _actual_spend == 0:
-                continue
-            t = analytics_cache.get_cached_trend(_conn, c) or DEFAULT_TREND_DICT
-            _avg = float(t.get("mean", 0))
-            _pct = ((_actual_spend / _avg) - 1) * 100 if _avg > 0 else 0
-            entry = {
-                "category": c,
-                "current_spend": _actual_spend,
-                "historical_avg": _avg,
-                "historical_std": float(t.get("std", 0)),
-                "trend_direction": t.get("direction", "stable"),
-                "slope_per_month": float(t.get("slope_per_month", 0)),
-                "pct_vs_mean": _pct,
-                "severity": "critical" if _pct > 115 else ("warning" if _pct > 100 else t.get("severity", "normal")),
-                "merchants": [],
-            }
-            _cur_merchants = database.get_merchant_breakdown_for_month(_conn, c, _month_key, limit=5)
-            if _cur_merchants:
-                entry["merchants"] = [m["name"] for m in _cur_merchants]
-                entry["merchant_details"] = [
-                    {"name": m["name"], "total": abs(m["total"]), "visits": m["visits"],
-                     "avg_per_visit": round(abs(m["total"]) / max(m["visits"], 1), 2)}
-                    for m in _cur_merchants
-                ]
-            cached_pf = analytics_cache.get_cached_prophet(_conn, c)
-            if cached_pf and cached_pf.get("forecast"):
-                entry["prophet_forecast"] = cached_pf["forecast"]
-                entry["prophet_trend"] = cached_pf.get("trend_direction", "")
-                entry["prophet_slope"] = cached_pf.get("trend_slope_monthly", 0)
-            cached_adv = analytics_cache.get_cached_advanced(_conn, c)
-            if cached_adv:
-                mk = cached_adv.get("mann_kendall", {})
-                entry["mann_kendall_trend"] = mk.get("trend", "")
-                entry["mann_kendall_strength"] = mk.get("strength", "")
-                entry["mann_kendall_p"] = mk.get("p_value", 1.0)
-                seas = cached_adv.get("seasonality", {})
-                entry["seasonal"] = seas.get("has_seasonality", False)
-                entry["seasonal_strength"] = seas.get("seasonal_strength", 0)
-                entry["seasonal_period"] = seas.get("period", 0)
-            cats_payload.append(entry)
-        _conn.close()
-
-        try:
-            actions = advisor.generate_preventive_actions(cats_payload)
-            return {a["category"]: a for a in actions if isinstance(a, dict) and "category" in a}
-        except Exception:
-            return {}
-
-    claude_actions = {}
-    advisor = get_advisor()
-    if advisor:
-        with st.spinner("Analyzing trends & generating preventive actions..."):
-            claude_actions = _get_claude_preventive_actions(selected_month)
-
-    # Three-tier card ordering — sorted by severity
-    red_cats = []
-    yellow_cats = []
-    green_cats = []
-
-    for cat_data in month_breakdown:
-        cat = cat_data["category"]
-        spent = abs(cat_data["total"])
-        td = trend_results.get(cat, DEFAULT_TREND_DICT)
-        t_mean = float(td.get("mean", 0))
-        fill_pct = (spent / t_mean * 100) if t_mean > 0 else 50
-        excess = spent - t_mean
-
-        if fill_pct > 115:
-            red_cats.append((cat_data, td, excess))
-        elif fill_pct > 100:
-            yellow_cats.append((cat_data, td, excess))
-        else:
-            green_cats.append((cat_data, td, excess))
-
-    red_cats.sort(key=lambda x: -x[2])
-    yellow_cats.sort(key=lambda x: -x[2])
-    green_cats.sort(key=lambda x: -abs(x[0]["total"]))
-
-    if red_cats:
-        st.markdown("#### ⚠ Needs Attention")
-        for cat_data, td, _ in red_cats:
-            render_category_card(cat_data, td, conn, claude_actions, selected_month, expanded_default=False)
-
-    if yellow_cats:
-        st.markdown("#### 👀 Monitor")
-        cols = st.columns(2)
-        for i, (cat_data, td, _) in enumerate(yellow_cats):
-            with cols[i % 2]:
-                render_category_card(cat_data, td, conn, claude_actions, selected_month, expanded_default=False)
-
-    if green_cats:
-        st.markdown("#### ✅ On Track")
-        cols = st.columns(2)
-        for i, (cat_data, td, _) in enumerate(green_cats):
-            with cols[i % 2]:
-                render_category_card(cat_data, td, conn, claude_actions, selected_month, expanded_default=False)
 
     # ── STICKY CHAT INPUT (always at bottom of screen) ──────────────
     dash_question = st.chat_input("Ask about spending or savings...")

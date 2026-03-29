@@ -45,6 +45,12 @@ if not hasattr(_this, "CC_MONTHLY_AVERAGE") and hasattr(_this, "CC_MONTHLY_AVERA
     CC_MONTHLY_AVERAGE = CC_MONTHLY_AVERAGE_EXCL_DAYCARE  # noqa: F405
 if not hasattr(_this, "FAMILY_DISPLAY_NAME"):
     FAMILY_DISPLAY_NAME = "Family Budget"
+if not hasattr(_this, "MONARCH_FIXED_MAP"):
+    MONARCH_FIXED_MAP = {}
+if not hasattr(_this, "INCOME_LABELS"):
+    INCOME_LABELS = {}
+if not hasattr(_this, "FIXED_BILL_GROUPS"):
+    FIXED_BILL_GROUPS = {}
 
 # ---------------------------------------------------------------------------
 # Computed values from private data
