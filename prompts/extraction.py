@@ -275,7 +275,7 @@ EXTRACTION RULES FOR CHECKING
 2. CREDIT CARD PAYMENTS (large outflows to own cards):
    - Identify WHICH card was paid (look for last-4 or card name in description)
    - Category: "Transfers & Payments"
-   - Notes: "Payment to Chase 4730" / "Payment to Capital One" etc.
+   - Notes: "Payment to [card name]" / "Payment to Capital One" etc.
 
 3. MORTGAGE:
    - "MR COOPER" or similar → "Housing & Utilities"

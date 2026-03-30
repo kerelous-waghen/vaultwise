@@ -425,7 +425,6 @@ def compute_merchant_impact(conn, category: str, months: int = 6) -> list[dict]:
         return []
 
     # Build per-merchant monthly data
-    from collections import defaultdict
     merchant_monthly = defaultdict(lambda: defaultdict(float))
     category_monthly = defaultdict(float)
     merchant_totals = defaultdict(float)
