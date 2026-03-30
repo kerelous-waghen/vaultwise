@@ -165,7 +165,7 @@ def savings_journey_page():
         _current = max(0, min(_current, typical))
         _color = _CAT_COLORS[i % len(_CAT_COLORS)]
 
-        # Category header with color dot and cut badge
+        # Category header: name on left, typical + badge on right
         _cut_preview = typical - _current
         _badge = ""
         if _cut_preview > 0:
@@ -175,16 +175,19 @@ def savings_journey_page():
                 f'margin-left:6px;">−${_cut_preview:,}</span>'
             )
         st.markdown(
-            f'<div style="display:flex;align-items:center;margin-bottom:-10px;'
+            f'<div style="display:flex;align-items:center;'
+            f'justify-content:space-between;margin-bottom:-10px;'
             f'margin-top:8px;">'
+            f'<div style="display:flex;align-items:center;">'
             f'<span style="width:10px;height:10px;border-radius:50%;'
             f'background:{_color};display:inline-block;margin-right:6px;'
             f'flex-shrink:0;"></span>'
             f'<span style="font-size:13px;font-weight:500;color:#1a1a2e;">'
-            f'{cat}</span>'
-            f'<span style="font-size:11px;color:#94a3b8;margin-left:6px;">'
+            f'{cat}</span></div>'
+            f'<div style="display:flex;align-items:center;">'
+            f'<span style="font-size:11px;color:#94a3b8;">'
             f'typical ${typical:,}</span>'
-            f'{_badge}</div>',
+            f'{_badge}</div></div>',
             unsafe_allow_html=True,
         )
 
@@ -225,15 +228,18 @@ def savings_journey_page():
                     )
                 st.markdown(
                     f'<div style="display:flex;align-items:center;'
+                    f'justify-content:space-between;'
                     f'margin-bottom:-10px;margin-top:4px;">'
+                    f'<div style="display:flex;align-items:center;">'
                     f'<span style="width:8px;height:8px;border-radius:50%;'
                     f'background:{_color};display:inline-block;'
                     f'margin-right:6px;"></span>'
                     f'<span style="font-size:12px;color:#1a1a2e;">'
-                    f'{cat}</span>'
-                    f'<span style="font-size:10px;color:#94a3b8;'
-                    f'margin-left:4px;">typical ${typical:,}</span>'
-                    f'{_badge}</div>',
+                    f'{cat}</span></div>'
+                    f'<div style="display:flex;align-items:center;">'
+                    f'<span style="font-size:10px;color:#94a3b8;">'
+                    f'typical ${typical:,}</span>'
+                    f'{_badge}</div></div>',
                     unsafe_allow_html=True,
                 )
 
