@@ -14,6 +14,8 @@ from typing import Optional
 import pdfplumber
 import io
 
+import config
+
 
 # Chase spending report categories → app categories
 CHASE_TO_APP = {
@@ -392,7 +394,8 @@ def refine_checking_category(desc: str) -> str:
         return "Giving & Church"
 
     # Family support (Zelle)
-    if re.search(r'ZELLE.*(?:MAMA|NERMEEN|MAGED|GEORGE|DODO)', d):
+    _family_pattern = "|".join(re.escape(n) for n in config.FAMILY_ZELLE_NAMES) if config.FAMILY_ZELLE_NAMES else "NOMATCH"
+    if re.search(rf'ZELLE.*(?:{_family_pattern})', d):
         return "Family Support"
 
     # Student loans

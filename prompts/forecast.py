@@ -8,7 +8,7 @@ from datetime import date
 def build_forecast_prompt(projection_summary: dict, historical_summary: dict, savings_target: int = 1000) -> str:
     today = date.today()
 
-    return f"""You are a financial forecasting analyst who has been working with the Waghen family for over a year. You understand their income patterns, spending habits, and their savings goals.
+    return f"""You are a financial forecasting analyst who has been working with {config.FAMILY_DISPLAY_NAME} for over a year. You understand their income patterns, spending habits, and their savings goals.
 
 TODAY'S DATE: {today.isoformat()}
 MONTHLY SAVINGS TARGET: ${savings_target:,}/mo
@@ -22,10 +22,7 @@ FINANCIAL OVERVIEW
 ─────────────────────────────────────────────
 INCOME GROWTH MODEL
 ─────────────────────────────────────────────
-- Kero: $5,000 raise every March (next raise increases monthly net by ~$208)
-- Maggie: $4,000 raise every January (next raise increases monthly net by ~$167)
-- Kero bonus: ~$18,000 after tax, paid March (one-time boost)
-- Maggie bonus: ~$5,000 after tax, paid January (one-time boost)
+{_format_income_growth()}
 
 ─────────────────────────────────────────────
 SAVINGS LEVERS AVAILABLE
@@ -56,10 +53,10 @@ YOUR ANALYSIS TASK
 
 2. RISK FACTORS: Identify 3-5 specific risks with likelihood, dollar impact, and mitigation. Think about:
    - Spending creep (are recent months trending higher than historical average?)
-   - Job change / income disruption for either Kero or Maggie
+   - Job change / income disruption for any household earner
    - Large one-time expenses (car repair, medical, home repair)
    - Inflation impact on groceries and household costs
-   - Interest rate risk on Chase 3072 balance
+   - Interest rate risk on credit card balance
 
 3. RECOMMENDATIONS: Provide 4-6 prioritized, specific actions. Each must include:
    - What to do (specific, not vague)
@@ -116,7 +113,7 @@ No markdown fences. No text before or after. Pure JSON.
 def build_scenario_prompt(base_summary: dict, scenario_summary: dict, adjustments: dict, savings_target: int = 1000) -> str:
     today = date.today()
 
-    return f"""You are the Waghen family's financial forecasting analyst comparing a what-if scenario against their base case projection.
+    return f"""You are {config.FAMILY_DISPLAY_NAME}'s financial forecasting analyst comparing a what-if scenario against their base case projection.
 
 TODAY'S DATE: {today.isoformat()}
 MONTHLY SAVINGS TARGET: ${savings_target:,}/mo
@@ -168,4 +165,20 @@ Provide a clear, specific comparison. Address ALL of these:
 
 6. VERDICT: One clear recommendation — adopt this scenario, modify it, or skip it.
 
-Keep your response under 300 words. Be specific with dollar amounts. Use their names and reference their actual merchants/habits."""
+Keep your response under 300 words. Be specific with dollar amounts. Reference their actual merchants/habits."""
+
+
+def _format_income_growth() -> str:
+    lines = []
+    for key, data in config.INCOME.items():
+        if isinstance(data, dict) and "annual_raise" in data:
+            label = config.INCOME_LABELS.get(key, {}).get("income_label", key.title())
+            raise_amt = data["annual_raise"]
+            raise_mo = data.get("raise_month", "N/A")
+            net_impact = int(raise_amt * 0.056)  # approximate net from gross
+            bonus = data.get("bonus_annual_after_tax", 0)
+            bonus_mo = data.get("bonus_month", "N/A")
+            lines.append(f"- {label}: ${raise_amt:,} raise every month {raise_mo} (increases monthly net by ~${net_impact:,})")
+            if bonus:
+                lines.append(f"  Bonus: ~${bonus:,} after tax, paid month {bonus_mo}")
+    return "\n".join(lines) if lines else "- Income growth details configured in config_private.py"

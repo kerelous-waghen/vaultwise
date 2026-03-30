@@ -5,9 +5,8 @@ No hardcoded dollar amounts or percentages.
 """
 
 import math
-import random
 from calendar import monthrange
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
@@ -153,7 +152,6 @@ def mann_kendall_test(values: list) -> dict:
 
     # Variance of S (with ties correction)
     # Count ties
-    from collections import Counter
     tie_counts = Counter(values)
     tie_groups = [c for c in tie_counts.values() if c > 1]
 
@@ -282,7 +280,6 @@ def cross_category_correlation(conn, months: int = 12) -> list[dict]:
     """, (start.isoformat(),)).fetchall()
 
     # Build pivot: month -> {category: total}
-    from collections import defaultdict
     monthly_data = defaultdict(dict)
     all_cats = set()
     for r in rows:
@@ -384,16 +381,9 @@ def granger_causality_simple(x_series: list, y_series: list, max_lag: int = 2) -
 
     f_stat = ((rss_r - rss_u) / df1) / (rss_u / df2)
 
-    # Approximate p-value (no scipy dependency)
-    # Using conservative thresholds from F-distribution tables
-    if f_stat > 6.0:
-        p_value = 0.01
-    elif f_stat > 4.0:
-        p_value = 0.04
-    elif f_stat > 3.0:
-        p_value = 0.08
-    else:
-        p_value = 0.5
+    # Compute exact p-value using scipy F-distribution
+    from scipy.stats import f as f_dist
+    p_value = float(f_dist.sf(f_stat, df1, df2))
 
     return {
         "significant": p_value < 0.05,
@@ -1033,13 +1023,13 @@ def simulate_cash_flow(conn, n_simulations: int = 500,
     n = len(base_df)
     cumulative_paths = np.zeros((n_simulations, n))
 
+    rng = np.random.default_rng(seed=42)
     for sim in range(n_simulations):
         cumulative = 0.0
         for i in range(n):
             base_net = base_df.iloc[i]["monthly_net"]
             # Add random noise proportional to historical variance
-            # Noise is scaled to the expense component
-            noise = np.random.normal(0, base_df.iloc[i]["monthly_expenses"] * cv * 0.3)
+            noise = rng.normal(0, base_df.iloc[i]["monthly_expenses"] * cv)
             monthly_net = base_net + noise
             cumulative += monthly_net
             cumulative_paths[sim, i] = cumulative

@@ -47,32 +47,36 @@ def settings_page():
     st.markdown("#### Income")
     _inc_c1, _inc_c2 = st.columns(2)
 
+    _income_keys = [k for k, v in config.INCOME.items() if isinstance(v, dict) and "biweekly_net" in v]
+    _inc_label_1 = config.INCOME_LABELS.get(_income_keys[0], {}).get("settings_label", _income_keys[0].title()) if _income_keys else "Primary"
+    _inc_label_2 = config.INCOME_LABELS.get(_income_keys[1] if len(_income_keys) > 1 else "", {}).get("settings_label", _income_keys[1].title() if len(_income_keys) > 1 else "Secondary")
+
     with _inc_c1:
-        st.markdown("**Kero (Premera)**")
-        _k_bi = st.number_input("Biweekly take-home", value=config.INCOME["kero"]["biweekly_net"], step=50, key="kero_biweekly")
-        _k_bonus = st.number_input("Annual bonus (after tax)", value=config.INCOME["kero"]["bonus_annual_after_tax"], step=500, key="kero_bonus_annual")
+        st.markdown(f"**{_inc_label_1}**")
+        _k_bi = st.number_input("Biweekly take-home", value=config.INCOME[_income_keys[0]]["biweekly_net"], step=50, key="kero_biweekly") if _income_keys else 0
+        _k_bonus = st.number_input("Annual bonus (after tax)", value=config.INCOME[_income_keys[0]]["bonus_annual_after_tax"], step=500, key="kero_bonus_annual") if _income_keys else 0
 
     with _inc_c2:
-        st.markdown("**Maggie (Boeing)**")
-        _m_bi = st.number_input("Biweekly take-home", value=config.INCOME["maggie"]["biweekly_net"], step=50, key="maggie_biweekly")
-        _m_bonus = st.number_input("Annual bonus (after tax)", value=config.INCOME["maggie"]["bonus_annual_after_tax"], step=500, key="maggie_bonus_annual")
+        st.markdown(f"**{_inc_label_2}**")
+        _m_bi = st.number_input("Biweekly take-home", value=config.INCOME[_income_keys[1]]["biweekly_net"], step=50, key="maggie_biweekly") if len(_income_keys) > 1 else 0
+        _m_bonus = st.number_input("Annual bonus (after tax)", value=config.INCOME[_income_keys[1]]["bonus_annual_after_tax"], step=500, key="maggie_bonus_annual") if len(_income_keys) > 1 else 0
 
     _k_monthly = round(_k_bi * 26 / 12)
     _m_monthly = round(_m_bi * 26 / 12)
     _k_bonus_spread = round(_k_bonus / 12)
     _m_bonus_spread = round(_m_bonus / 12)
     _combined = _k_monthly + _k_bonus_spread + _m_monthly + _m_bonus_spread
-    st.caption(f"Monthly: Kero ${_k_monthly:,} + ${_k_bonus_spread:,} bonus | Maggie ${_m_monthly:,} + ${_m_bonus_spread:,} bonus | **Combined: ${_combined:,}/mo**")
+    st.caption(f"Monthly: {_inc_label_1} ${_k_monthly:,} + ${_k_bonus_spread:,} bonus | {_inc_label_2} ${_m_monthly:,} + ${_m_bonus_spread:,} bonus | **Combined: ${_combined:,}/mo**")
 
-    if st.button("Save Income Changes", key="save_income"):
-        config.INCOME["kero"]["biweekly_net"] = _k_bi
-        config.INCOME["kero"]["monthly_net"] = _k_monthly
-        config.INCOME["kero"]["bonus_annual_after_tax"] = _k_bonus
-        config.INCOME["kero"]["bonus_spread_monthly"] = _k_bonus_spread
-        config.INCOME["maggie"]["biweekly_net"] = _m_bi
-        config.INCOME["maggie"]["monthly_net"] = _m_monthly
-        config.INCOME["maggie"]["bonus_annual_after_tax"] = _m_bonus
-        config.INCOME["maggie"]["bonus_spread_monthly"] = _m_bonus_spread
+    if st.button("Save Income Changes", key="save_income") and len(_income_keys) >= 2:
+        config.INCOME[_income_keys[0]]["biweekly_net"] = _k_bi
+        config.INCOME[_income_keys[0]]["monthly_net"] = _k_monthly
+        config.INCOME[_income_keys[0]]["bonus_annual_after_tax"] = _k_bonus
+        config.INCOME[_income_keys[0]]["bonus_spread_monthly"] = _k_bonus_spread
+        config.INCOME[_income_keys[1]]["biweekly_net"] = _m_bi
+        config.INCOME[_income_keys[1]]["monthly_net"] = _m_monthly
+        config.INCOME[_income_keys[1]]["bonus_annual_after_tax"] = _m_bonus
+        config.INCOME[_income_keys[1]]["bonus_spread_monthly"] = _m_bonus_spread
         config.INCOME["combined_monthly_take_home"] = _combined
         database.set_setting(conn, "income_config", json.dumps(config.INCOME))
         st.success(f"Income updated! Combined: ${_combined:,}/mo")
@@ -586,7 +590,7 @@ def settings_page():
                             maggie_chat = database.get_setting(conn, "telegram_chat_id_maggie")
                             if maggie_chat and maggie_chat != chat_id:
                                 TelegramReporter(bot_token, maggie_chat).send_weekly_report(summary, charts)
-                            st.success("Sent to Kero & Maggie!")
+                            st.success(f"Sent to {config.FAMILY_DISPLAY_NAME}!")
                         except Exception as e:
                             st.error(f"Failed: {e}")
 

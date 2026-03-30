@@ -74,12 +74,9 @@ def home_page():
             )
         conn.commit()
 
-    # Get this month's data
-    _raw_breakdown = database.get_monthly_category_breakdown(conn, selected_month)
-    _active_cats_dash = category_engine.get_active_categories(conn)
-    month_breakdown = [c for c in _raw_breakdown
-                       if c["category"] in _active_cats_dash
-                       and c["category"] not in config.EXCLUDED_CATEGORIES]
+    # Get this month's data (centralized filtering: active + merge + mute)
+    from shared.filters import get_filtered_breakdown
+    month_breakdown = get_filtered_breakdown(conn, selected_month)
     if not month_breakdown:
         st.info(f"No spending data for {month_display}.")
         conn.close()
@@ -119,38 +116,6 @@ def home_page():
                    "Phone & Internet", "Car Insurance"}
     _fixed_cats.update(config.MONARCH_FIXED_MAP.keys())
     _muted_cats = set(getattr(config, 'MUTED_CATEGORIES', []))
-
-    # Merge categories (e.g., "Education" into "Childcare & Education")
-    _merges = getattr(config, 'CATEGORY_MERGES', {})
-    _merge_sources = set()
-    for _sources in _merges.values():
-        _merge_sources.update(_sources)
-
-    # Actually combine merged source amounts into their target category
-    for _target, _sources in _merges.items():
-        _target_entry = next((c for c in month_breakdown if c["category"] == _target), None)
-        for _src in _sources:
-            _src_entry = next((c for c in month_breakdown if c["category"] == _src), None)
-            if _src_entry:
-                if _target_entry:
-                    _target_entry["total"] += _src_entry["total"]
-                    _target_entry["txn_count"] += _src_entry["txn_count"]
-                else:
-                    # Target doesn't exist yet — rename the source entry
-                    _src_entry["category"] = _target
-                    _target_entry = _src_entry
-                    _merge_sources.discard(_src)  # keep it since it became the target
-
-    # CRITICAL: Filter month_breakdown BEFORE any math
-    # Remove muted categories and merge sources (whose amounts are now in the target)
-    month_breakdown = [
-        c for c in month_breakdown
-        if c["category"] not in _muted_cats
-        and c["category"] not in _merge_sources
-    ]
-
-    # Recalculate total_spent WITHOUT muted categories
-    total_spent = sum(abs(c["total"]) for c in month_breakdown)
 
     # Compute fixed vs discretionary from the already-filtered breakdown
     _txn_fixed = sum(
@@ -201,16 +166,28 @@ def home_page():
     _target_rate = (savings_target / _monthly_income * 100) if _monthly_income > 0 else 0
 
     kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Savings Rate", f"{_savings_rate:.0f}%",
-                delta=f"Target: {_target_rate:.0f}%",
-                delta_color="off")
+    # BUG-15: Use urgency colors for negative savings rate
+    if _savings_rate < 0:
+        kpi1.metric("Savings Rate", f"{_savings_rate:.0f}%",
+                    delta=f"Target: {_target_rate:.0f}% — over budget!",
+                    delta_color="inverse")
+    else:
+        kpi1.metric("Savings Rate", f"{_savings_rate:.0f}%",
+                    delta=f"Target: {_target_rate:.0f}%",
+                    delta_color="off")
 
     # Daily Pace
     if _days_left > 0:
-        _daily_left = _discretionary_left / _days_left
-        kpi2.metric("Daily Budget Left", f"${_daily_left:,.0f}/day",
-                    delta=f"{_days_left} {'day' if _days_left == 1 else 'days'} left",
-                    delta_color="off")
+        if _over_budget > 0:
+            # BUG-16: Show over-budget amount instead of $0/day
+            kpi2.metric("Daily Budget Left", f"Over by ${_over_budget:,.0f}",
+                        delta=f"{_days_left} {'day' if _days_left == 1 else 'days'} left — stop spending!",
+                        delta_color="inverse")
+        else:
+            _daily_left = _discretionary_left / _days_left
+            kpi2.metric("Daily Budget Left", f"${_daily_left:,.0f}/day",
+                        delta=f"{_days_left} {'day' if _days_left == 1 else 'days'} left",
+                        delta_color="off")
     else:
         kpi2.metric("Month Status", "Complete" if (date.today().year, date.today().month) != (_sel_year, _sel_month) else "Today")
 

@@ -47,8 +47,8 @@ def _get_flex_categories(conn, fixed_cats, month_key=None):
         s for s in all_status
         if s["category"] not in fixed_cats
         and s["category"] not in muted
-        and s["category"] not in merge_sources  # hide merged-away categories
-        and (not hide_zero or s["current_spend"] > 0)  # hide $0 categories
+        and s["category"] not in merge_sources
+        and (not hide_zero or s["current_spend"] > 0)
     ]
     flex.sort(key=lambda x: x["current_spend"], reverse=True)
     return flex

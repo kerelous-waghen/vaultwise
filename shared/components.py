@@ -65,7 +65,7 @@ def render_savings_gauge(month_display, saved, gauge_color, status_icon, status_
         f'</div>'
         f'<div class="gauge-detail" style="color:#9ca3af;margin-top:2px;">Fixed: {D}{effective_fixed:,.0f} · Spending: {D}{txn_discretionary:,.0f}</div>'
         + (f'<div style="font-size:0.72rem;color:#b45309;margin-top:2px;">Includes {D}{effective_fixed - txn_fixed:,.0f} in fixed bills not yet posted</div>'
-           if txn_fixed is not None and effective_fixed > txn_fixed and _day_of_month <= 15 else '')
+           if txn_fixed is not None and effective_fixed > txn_fixed else '')
         + f'<div style="font-size:clamp(0.75rem,2.5vw,0.85rem);color:{gauge_color};font-weight:600;margin-top:6px;">{status_text}</div>'
         f'</div>'
     )

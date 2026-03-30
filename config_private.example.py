@@ -95,3 +95,26 @@ FIXED_BILL_GROUPS = {}
 
 # Auto-recategorize interval (days, 0=disabled)
 AUTO_RECATEGORIZE_DAYS = 0
+
+# Names that appear in Zelle transfers to identify family payments (for statement parsing)
+FAMILY_ZELLE_NAMES = ["PERSON_A", "PERSON_B"]
+
+# Family member names for regex matching in statement parsers
+FAMILY_MEMBER_NAMES = ["Person1", "Person2"]
+
+# Family context injected into Claude extraction prompts (for categorization accuracy)
+EXTRACTION_CONTEXT = """
+- Person1 (Company A) and Person2 (Company B)
+- Children: Child1, Child2
+- Address: 123 Main St, City ST 00000
+- Daycare: Example Daycare
+- Church: Example Church (Zelle $X/mo)
+- Family support: Zelle to Person_A ~$X/mo
+- Primary shopping area: Local Area
+"""
+
+# Context for savings lever advice (merchant-specific tips)
+SAVINGS_LEVER_CONTEXT = ""
+
+# Annual expense inflation rate (3% default)
+EXPENSE_GROWTH_RATE = 0.03

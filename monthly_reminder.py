@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Monthly statement reminder — nags Kero and Maggie until they upload.
+Monthly statement reminder — nags household members until they upload.
 Run this daily (via cron/launchd). It checks if this month's data exists
 and sends personalized reminders if not.
 
@@ -24,88 +24,57 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "data", config.DB_FILENAME)
 
 # ── Reminder configuration ────────────────────────────────────────────────
 
-PEOPLE = {
-    "kero": {
-        "name": "Kero",
-        "account_id": "chase_4730",
-        "card_label": "Chase 4730",
-        "setting_key": "telegram_chat_id",  # Main chat ID
-    },
-    "maggie": {
-        "name": "Maggie",
-        "account_id": "chase_3072",
-        "card_label": "Chase 3072",
-        "setting_key": "telegram_chat_id_maggie",
-    },
-}
+# Build PEOPLE dict dynamically from config.TELEGRAM_USERS and config.ACCOUNTS
+PEOPLE = {}
+for _user_key, _user_info in config.TELEGRAM_USERS.items():
+    _primary_acct = _user_info["accounts"][0] if _user_info.get("accounts") else None
+    if _primary_acct:
+        _acct_info = config.ACCOUNTS.get(_primary_acct, {})
+        PEOPLE[_user_key] = {
+            "name": _user_key.title(),
+            "account_id": _primary_acct,
+            "card_label": _acct_info.get("label", _primary_acct),
+            "setting_key": _user_info["setting_key"],
+        }
 
 # Day of month to start reminding
 REMINDER_START_DAY = 3
 
 # ── Reminder messages (rotate through these) ──────────────────────────────
 
-KERO_REMINDERS = [
+# Generic reminder templates — {name} and {card} are filled from PEOPLE dict
+REMINDERS = [
     # Day 3-5: Gentle
     (
-        "Hey Kero! Your Chase 4730 statement for {month} should be ready. "
-        "Open the Chase app → Statements → Download PDF → Share to me here. "
+        "Hey {name}! Your {card} statement for {month} should be ready. "
+        "Open the banking app → Statements → Download PDF → Share to me here. "
         "Takes 30 seconds. {motivation_msg}"
     ),
     # Day 6-8: Nudge
     (
-        "Kero, still waiting on your {month} Chase 4730 statement. "
+        "{name}, still waiting on your {month} {card} statement. "
         "Can't track your spending without it! "
-        "Quick reminder: Chase app → Statements → Share PDF here. {motivation_msg}"
+        "Quick reminder: Banking app → Statements → Share PDF here. {motivation_msg}"
     ),
     # Day 9-12: Firm
     (
-        "Kero! It's been {days} days since {month} ended and I still don't have your Chase 4730 data. "
+        "{name}! It's been {days} days since {month} ended and I still don't have your {card} data. "
         "Your spending dashboard is getting stale. "
         "Please upload today — accurate tracking is key to hitting your savings target. {motivation_msg}"
     ),
     # Day 13+: Escalation
     (
-        "Kero, {days} days without your {month} statement. "
+        "{name}, {days} days without your {month} statement. "
         "I can't give you accurate savings advice without current data. "
-        "This is a 30-second task: Chase app → Statements → Share PDF to me. Please do it now."
+        "This is a 30-second task: Banking app → Statements → Share PDF to me. Please do it now."
     ),
 ]
 
-MAGGIE_REMINDERS = [
-    # Day 3-5: Gentle
-    (
-        "Hey Maggie! Your Chase 3072 statement for {month} should be ready. "
-        "Open the Chase app → Statements → Download PDF → Share to me here. "
-        "Super quick!"
-    ),
-    # Day 6-8: Nudge
-    (
-        "Maggie, I'm still waiting on your {month} Chase 3072 statement. "
-        "Kero already uploaded his — just need yours to complete the picture! "
-        "Chase app → Statements → Share PDF here."
-    ),
-    # Day 9-12: Firm
-    (
-        "Maggie, it's been {days} days and I still don't have your {month} statement. "
-        "Without your card data, the budget tracker is missing half the spending. "
-        "Please upload today when you get a chance."
-    ),
-    # Day 13+: Escalation
-    (
-        "Maggie, {days} days without your {month} data. "
-        "The savings tracker can't work without both cards. "
-        "30 seconds: Chase app → Statements → Share to Vaultwise bot. Please!"
-    ),
-]
-
-BOTH_DONE_MSG = {
-    "kero": "All caught up, Kero! Both your and Maggie's {month} statements are in. Check the dashboard for the latest spending breakdown.",
-    "maggie": "All caught up, Maggie! Both statements are in for {month}. The budget tracker is fully updated.",
-}
+BOTH_DONE_MSG = "All caught up, {name}! All {month} statements are in. Check the dashboard for the latest spending breakdown."
 
 CHECKING_REMINDER = (
-    "Kero, don't forget the joint checking statement for {month} too! "
-    "Same process: Chase app → Statements → Checking → Share PDF here."
+    "{name}, don't forget the joint checking statement for {month} too! "
+    "Same process: Banking app → Statements → Checking → Share PDF here."
 )
 
 
@@ -184,83 +153,75 @@ def send_reminders():
         conn.close()
         return
 
-    bot = TelegramReporter(bot_token, kero_chat)  # Default to Kero
     motivation_msg = get_motivation_message()
     level = get_reminder_level(day)
 
-    # Check each person
-    kero_done = check_month_uploaded(conn, "chase_4730", check_year, check_month)
-    maggie_done = check_month_uploaded(conn, "chase_3072", check_year, check_month)
+    # Check each person dynamically from PEOPLE dict
+    upload_status = {}
+    for user_key, person in PEOPLE.items():
+        done = check_month_uploaded(conn, person["account_id"], check_year, check_month)
+        upload_status[user_key] = done
+        print(f"Checking {month_label}: {person['name']}={'done' if done else 'MISSING'}")
+
     checking_done = check_month_uploaded(conn, "joint_checking", check_year, check_month)
+    print(f"Checking {month_label}: Joint Checking={'done' if checking_done else 'MISSING'}")
 
-    print(f"Checking {month_label}: Kero={'done' if kero_done else 'MISSING'}, "
-          f"Maggie={'done' if maggie_done else 'MISSING'}, "
-          f"Checking={'done' if checking_done else 'MISSING'}")
+    all_done = all(upload_status.values()) and checking_done
 
-    # Send reminders
-    if not kero_done and kero_chat:
-        msg = KERO_REMINDERS[level].format(month=month_label, days=days_since, motivation_msg=motivation_msg)
-        bot_kero = TelegramReporter(bot_token, kero_chat)
-        bot_kero.send_message(msg)
-        print(f"  → Sent reminder to Kero (level {level})")
+    # Send reminders to each person
+    for user_key, person in PEOPLE.items():
+        chat_id = database.get_setting(conn, person["setting_key"])
+        if not chat_id:
+            continue
 
-        # Also remind about checking if missing
-        if not checking_done:
-            bot_kero.send_message(CHECKING_REMINDER.format(month=month_label))
-            print(f"  → Also reminded Kero about checking statement")
+        if not upload_status[user_key]:
+            msg = REMINDERS[level].format(
+                name=person["name"], card=person["card_label"],
+                month=month_label, days=days_since, motivation_msg=motivation_msg,
+            )
+            bot_user = TelegramReporter(bot_token, chat_id)
+            bot_user.send_message(msg)
+            print(f"  → Sent reminder to {person['name']} (level {level})")
 
-    elif kero_done and kero_chat and maggie_done:
-        # Both done — send congratulations (only once, on the day they complete)
-        pass  # Don't spam congrats every reminder day
+            # First user also gets checking reminder if missing
+            if not checking_done and user_key == list(PEOPLE.keys())[0]:
+                bot_user.send_message(CHECKING_REMINDER.format(name=person["name"], month=month_label))
+                print(f"  → Also reminded {person['name']} about checking statement")
 
-    if not maggie_done and maggie_chat:
-        msg = MAGGIE_REMINDERS[level].format(month=month_label, days=days_since, motivation_msg=motivation_msg)
-        bot_maggie = TelegramReporter(bot_token, maggie_chat)
-        bot_maggie.send_message(msg)
-        print(f"  → Sent reminder to Maggie (level {level})")
-
-    if kero_done and maggie_done and checking_done:
+    if all_done:
         print("  All statements uploaded for this month!")
 
     conn.close()
 
 
 def send_test():
-    """Send a test reminder to both."""
+    """Send a test reminder to all configured users."""
     database.init_db(DB_PATH)
     conn = database.get_connection(DB_PATH)
     bot_token = database.get_setting(conn, "telegram_bot_token")
-    kero_chat = database.get_setting(conn, "telegram_chat_id")
-    maggie_chat = database.get_setting(conn, "telegram_chat_id_maggie")
-    conn.close()
 
     if not bot_token:
         print("No bot token configured.")
+        conn.close()
         return
 
     motivation_msg = get_motivation_message()
 
-    if kero_chat:
-        bot = TelegramReporter(bot_token, kero_chat)
-        bot.send_message(
-            f"Hey Kero! This is a test reminder from Vaultwise AI.\n\n"
-            f"Every month I'll remind you to upload your Chase 4730 statement. "
-            f"Just share the PDF from the Chase app to this chat.\n\n"
-            f"{motivation_msg}"
-        )
-        print(f"✅ Test sent to Kero ({kero_chat})")
+    for user_key, person in PEOPLE.items():
+        chat_id = database.get_setting(conn, person["setting_key"])
+        if chat_id:
+            bot = TelegramReporter(bot_token, chat_id)
+            bot.send_message(
+                f"Hey {person['name']}! This is a test reminder from VaultWise.\n\n"
+                f"Every month I'll remind you to upload your {person['card_label']} statement. "
+                f"Just share the PDF from the banking app to this chat.\n\n"
+                f"{motivation_msg}"
+            )
+            print(f"✅ Test sent to {person['name']} ({chat_id})")
+        else:
+            print(f"⚠️  No chat ID for {person['name']} yet.")
 
-    if maggie_chat:
-        bot = TelegramReporter(bot_token, maggie_chat)
-        bot.send_message(
-            f"Hey Maggie! This is a test reminder from Vaultwise AI.\n\n"
-            f"Every month I'll remind you to upload your Chase 3072 statement. "
-            f"Just share the PDF from the Chase app to this chat.\n\n"
-            f"{motivation_msg}"
-        )
-        print(f"✅ Test sent to Maggie ({maggie_chat})")
-    else:
-        print("⚠️  No chat ID for Maggie yet. She needs to message @Vaultwise_bot first.")
+    conn.close()
 
 
 if __name__ == "__main__":

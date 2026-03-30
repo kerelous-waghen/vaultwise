@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Telegram bot listener — receives PDF/CSV files from Kero and Maggie,
+Telegram bot listener — receives PDF/CSV files from family members,
 auto-parses them, imports to database, and replies with a summary.
 
 Supports multi-chat (Kero + Maggie), weekly upload tracking, and
@@ -32,12 +32,8 @@ import chase_report_parser
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", config.DB_FILENAME)
 
-# Friendly display names for accounts
-ACCOUNT_LABELS = {
-    "chase_4730": "Chase 4730",
-    "chase_3072": "Chase 3072",
-    "joint_checking": "Joint Checking 3829",
-}
+# Friendly display names for accounts (from config)
+ACCOUNT_LABELS = {acct_id: info.get("label", acct_id) for acct_id, info in config.ACCOUNTS.items()}
 
 
 def get_settings():
@@ -498,20 +494,20 @@ def _handle_help_command(token, chat_id):
 
 
 def _try_autodetect_maggie(token, chat_id, from_name, message_text):
-    """If an unknown chat sends /start, auto-save as Maggie's chat ID."""
+    """If an unknown chat sends /start, auto-save as secondary user's chat ID."""
     conn = database.get_connection(DB_PATH)
     maggie_id = database.get_setting(conn, "telegram_chat_id_maggie")
     if not maggie_id:
-        # Save this as Maggie's chat ID
+        # Save this as secondary user's chat ID
         database.set_setting(conn, "telegram_chat_id_maggie", str(chat_id))
         send_message(token, chat_id,
             f"<b>Welcome {from_name}!</b> \U0001f389\n\n"
-            f"I've registered you as Maggie's chat. You'll receive:\n"
-            f"\u2022 Weekly upload reminders for Chase 3072\n"
+            f"I've registered your chat. You'll receive:\n"
+            f"\u2022 Weekly upload reminders\n"
             f"\u2022 Weekly spending reports\n\n"
-            f"Send me your Chase 3072 CSV anytime!"
+            f"Send me your statement CSV anytime!"
         )
-        print(f"Auto-detected Maggie's chat ID: {chat_id}")
+        print(f"Auto-detected secondary user's chat ID: {chat_id}")
         conn.close()
         return True
     conn.close()
@@ -590,7 +586,7 @@ def poll_updates(token, allowed_chat_id):
                             f"<b>Hey {from_name}!</b>\n\n"
                             f"I'm Vaultwise AI, your family budget bot.\n\n"
                             f"<b>Send me a PDF or CSV</b> from Chase and I'll:\n"
-                            f"- Auto-detect the account (Kero 4730, Maggie 3072, or checking)\n"
+                            f"- Auto-detect the account from the statement\n"
                             f"- Parse all transactions instantly\n"
                             f"- Import them to your budget tracker\n"
                             f"- Send you a category summary\n\n"

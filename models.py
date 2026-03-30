@@ -3,6 +3,7 @@ Data models (dataclasses) and deterministic forecast / scenario logic.
 Claude provides narrative interpretation; this module provides the numbers.
 """
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional
@@ -72,18 +73,18 @@ class Objective:
 def get_income_for_month(year: int, month: int) -> dict:
     """Project monthly income using verified payroll data.
 
-    Kero:  $10,617 base ($4,900 biweekly × 26/12) → +$285/mo each March
-    Maggie: $7,746 base ($3,575 biweekly × 26/12) → +$220/mo each January
-    Bonuses: Kero $1,500/mo spread, Maggie $417/mo spread (always included)
+    Primary earner: base from config, with annual raise step-ups
+    Secondary earner: base from config, with annual raise step-ups
+    Bonuses: spread monthly (always included)
     """
-    # Kero net pay: base $10,617 with step-ups in March
+    # Primary earner net pay: base from config with step-ups
     kero_base = config.INCOME["kero"]["monthly_net"]  # 10,617
     raise_amt = int(config.INCOME["kero"]["annual_raise"] * 0.057)  # ~$285/mo net from $5K gross
     for yr in range(2027, year + 1):
         if (year, month) >= (yr, config.INCOME["kero"]["raise_month"]):
             kero_base += raise_amt
 
-    # Maggie net pay: base $7,746 with step-ups in January
+    # Secondary earner net pay: base from config with step-ups
     maggie_base = config.INCOME["maggie"]["monthly_net"]  # 7,746
     raise_amt_m = int(config.INCOME["maggie"]["annual_raise"] * 0.055)  # ~$220/mo net from $4K gross
     for yr in range(2027, year + 1):
@@ -142,7 +143,9 @@ def project_cash_flow(
         income_info = get_income_for_month(year, month)
 
         total_income = income_info["total_income"]
-        total_expenses = monthly_expenses - adjustment
+        years_out = i / 12.0
+        inflated_expenses = monthly_expenses * (1 + config.EXPENSE_GROWTH_RATE) ** years_out
+        total_expenses = inflated_expenses - adjustment
 
         monthly_net = total_income - total_expenses
         cumulative += monthly_net
@@ -156,7 +159,7 @@ def project_cash_flow(
             "kero_bonus": income_info["kero_bonus"],
             "maggie_bonus": income_info["maggie_bonus"],
             "total_income": total_income,
-            "monthly_expenses": monthly_expenses - adjustment,
+            "monthly_expenses": inflated_expenses - adjustment,
             "total_expenses": total_expenses,
             "monthly_net": monthly_net,
             "cumulative": cumulative,
@@ -203,7 +206,6 @@ def detect_anomalies(monthly_summaries: list[dict], threshold_std: float = 2.0) 
         return []
 
     # Build per-category series
-    from collections import defaultdict
     cat_values = defaultdict(list)
     for summary in monthly_summaries:
         for cat, data in summary.get("categories", {}).items():
@@ -300,13 +302,13 @@ def compute_savings_streak(conn, target_monthly: int = 1000) -> int:
     - saved = income - effective_fixed - discretionary
     """
     try:
-        excluded = set(getattr(config, 'MUTED_CATEGORIES', []))
-        excluded.update(config.EXCLUDED_CATEGORIES)
-        placeholders = ",".join(f"'{c}'" for c in excluded)
+        excluded = list(set(getattr(config, 'MUTED_CATEGORIES', [])) | config.EXCLUDED_CATEGORIES)
+        excl_placeholders = ",".join("?" for _ in excluded)
 
         fixed_cats = {"Housing & Utilities", "Debt Payments", "Family Support",
                       "Transportation", "Phone & Internet", "Car Insurance"}
         fixed_cats.update(getattr(config, 'MONARCH_FIXED_MAP', {}).keys())
+        fixed_cats = list(fixed_cats)
         fixed_sum = sum(config.FIXED_MONTHLY_EXPENSES.values())
 
         rows = conn.execute(f"""
@@ -314,12 +316,13 @@ def compute_savings_streak(conn, target_monthly: int = 1000) -> int:
                    SUM(amount) as total_expenses
             FROM transactions
             WHERE amount < 0
-              AND category NOT IN ({placeholders})
+              AND category NOT IN ({excl_placeholders})
             GROUP BY month
             ORDER BY month DESC
-        """).fetchall()
+        """, excluded).fetchall()
 
         streak = 0
+        fixed_placeholders = ",".join("?" for _ in fixed_cats)
         for r in rows:
             ym = r["month"]
             yr, mo = int(ym.split("-")[0]), int(ym.split("-")[1])
@@ -334,9 +337,9 @@ def compute_savings_streak(conn, target_monthly: int = 1000) -> int:
                 FROM transactions
                 WHERE strftime('%Y-%m', date) = ?
                   AND amount < 0
-                  AND category NOT IN ({placeholders})
-                  AND category IN ({",".join(f"'{c}'" for c in fixed_cats)})
-            """, (ym,)).fetchone()
+                  AND category NOT IN ({excl_placeholders})
+                  AND category IN ({fixed_placeholders})
+            """, [ym] + excluded + fixed_cats).fetchone()
             txn_fixed = abs(fixed_rows["total"]) if fixed_rows and fixed_rows["total"] else 0
             txn_disc = total_spent - txn_fixed
             effective_fixed = max(fixed_sum, txn_fixed)

@@ -7,20 +7,14 @@ import config
 def build_extraction_prompt(account_hint: str | None, existing_periods: list[dict], family_context: str = "", categories: list[str] = None) -> str:
     # Use dynamic categories if provided, otherwise fall back to config
     active_categories = categories or config.CATEGORIES
-    return f"""You are a precision financial data extraction engine for the Waghen family's expense tracker.
+    return f"""You are a precision financial data extraction engine for the family expense tracker.
 
 Your output feeds directly into a database — accuracy is critical. Every transaction must be captured, every date must be correct, every category must match exactly.
 
 ─────────────────────────────────────────────
 FAMILY CONTEXT (for categorization accuracy)
 ─────────────────────────────────────────────
-- Kero (Premera Blue Cross, $190K) and Maggie (Boeing, $130K)
-- Two children: Geo (born Jun 16, 2023 — toddler/preschool age) and Perla (born Jan 30, 2026 — infant)
-- Address: 13842 92nd Pl NE, Kirkland, WA 98034
-- Daycare: Kiddie Academy of Kirkland (was Kirkland Academy Montessori before ~mid 2025)
-- Church: St. George's Coptic Orthodox (Zelle $1,500/mo to church + small Square card donations)
-- Family support: Zelle to "NERMEEN" ~$150/mo
-- Primary shopping area: Kirkland / Totem Lake / Redmond / Bellevue, WA
+{config.EXTRACTION_CONTEXT if config.EXTRACTION_CONTEXT else "No family context configured."}
 
 ─────────────────────────────────────────────
 KNOWN ACCOUNTS
@@ -73,7 +67,7 @@ For each transaction, extract:
     - Remove city/state suffixes: "SAFEWAY #3214 KIRKLAND WA" → "Safeway"
     - Remove transaction codes: "SQ *SHARKEY'S CUTS FO" → "Sharkey's Cuts for Kids"
     - Expand known abbreviations: "AMZN MKTP US" → "Amazon Marketplace"
-    - Keep useful detail: "KIDDIE ACADEMY KIRKLAN" → "Kiddie Academy Kirkland"
+    - Keep useful detail: "KIDDIE ACADEMY" → "Kiddie Academy"
 
   raw_description: Exactly as it appears on the statement. Do not modify.
 
@@ -87,7 +81,7 @@ For each transaction, extract:
   category: Must be EXACTLY one of the category names listed above. See categorization rules below.
 
   confidence: Float 0.0 to 1.0
-    - 0.95+ for obvious matches (Kiddie Academy → Daycare, Safeway → Groceries)
+    - 0.95+ for obvious matches (daycare merchant → Daycare, Safeway → Groceries)
     - 0.80-0.94 for strong matches with minor ambiguity
     - 0.60-0.79 for reasonable guesses (generic merchant names)
     - Below 0.60 for uncertain categorizations — add explanation in notes
@@ -176,7 +170,7 @@ GIVING & CHURCH:
   (NOTE: Zelle to church goes through checking, not credit cards)
 
 FAMILY SUPPORT:
-  Zelle to "NERMEEN" → Family Support
+  Zelle to family members → Family Support
 
 DEBT PAYMENTS:
   Student loan payments, "AFFIRM", interest charges, late fees → Debt Payments
@@ -188,7 +182,7 @@ TRAVEL:
   Hotels, flights, Airbnb, airline charges, luggage fees, vacation parking → Travel
 
 TRANSFERS & PAYMENTS:
-  Credit card payments, bank transfers, Zelle (non-church, non-Nermeen),
+  Credit card payments, bank transfers, Zelle (non-church, non-family-support),
   ACH transfers between own accounts → Transfers & Payments
 
 INCOME & REFUNDS:
@@ -211,8 +205,8 @@ No markdown fences. No explanation text before or after. Pure JSON only.
     "transactions": [
         {{
             "date": "2025-01-05",
-            "description": "Kiddie Academy Kirkland",
-            "raw_description": "KIDDIE ACADEMY KIRKLAN 425-2420075 WA",
+            "description": "Kiddie Academy",
+            "raw_description": "KIDDIE ACADEMY 425-2420075 WA",
             "amount": -3028.50,
             "category": "Daycare",
             "confidence": 0.98,
@@ -241,18 +235,15 @@ QUALITY CHECKLIST (verify before responding)
 
 
 def build_checking_extraction_prompt(existing_periods: list[dict]) -> str:
-    return f"""You are a precision financial data extraction engine for the Waghen family's expense tracker.
-You are analyzing a JOINT CHECKING ACCOUNT statement (Chase).
+    return f"""You are a precision financial data extraction engine for the family expense tracker.
+You are analyzing a JOINT CHECKING ACCOUNT statement.
 
 This account is the family's central hub — all paychecks come in, all fixed bills go out, and credit card payments flow through here.
 
 ─────────────────────────────────────────────
 FAMILY CONTEXT
 ─────────────────────────────────────────────
-- Kero (Premera Blue Cross) and Maggie (Boeing) — joint Chase checking account
-- Two children: Geo and Perla
-- This account receives bi-weekly paychecks from both employers
-- Known recurring Zelle payments: church ($1,500/mo), family support to Nermeen ($150/mo)
+{config.EXTRACTION_CONTEXT if config.EXTRACTION_CONTEXT else "No family context configured."}
 
 ─────────────────────────────────────────────
 KNOWN FIXED MONTHLY EXPENSES (verify against statement)
@@ -264,10 +255,7 @@ TOTAL EXPECTED FIXED EXPENSES: ~${sum(config.FIXED_MONTHLY_EXPENSES.values()):,}
 ─────────────────────────────────────────────
 CREDIT CARDS PAID FROM THIS ACCOUNT
 ─────────────────────────────────────────────
-- Chase ...4730 (Kero's primary card)
-- Chase ...3072 (Maggie's card — carries a balance)
-- Capital One (shared)
-- Apple Card (Kero)
+{chr(10).join(f"- {info.get('label', acct_id)}" for acct_id, info in config.ACCOUNTS.items() if info.get('type') == 'credit')}
 
 ─────────────────────────────────────────────
 EXISTING STATEMENT PERIODS IN DATABASE
@@ -295,7 +283,7 @@ EXTRACTION RULES FOR CHECKING
 
 4. ZELLE PAYMENTS:
    - To church/religious institution → "Giving & Church" (expected ~$1,500)
-   - To "NERMEEN" → "Family Support" (expected ~$150)
+   - To family members (from family context) → "Family Support"
    - To unknown recipients → "Transfers & Payments" with note asking for clarification
 
 5. RECURRING BILLS:

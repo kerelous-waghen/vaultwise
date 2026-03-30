@@ -64,30 +64,34 @@ lsof -ti:8501 | xargs kill -9 2>/dev/null; launchctl unload ~/Library/LaunchAgen
 | File | Purpose |
 |------|---------|
 | `app.py` | Streamlit UI and page routing |
+| `models.py` | Data models (dataclasses) and deterministic forecast / scenario logic |
 | `analytics.py` | Time-series analysis, Prophet, trend scoring |
 | `analytics_cache.py` | Pre-computed analytics stored in DB |
 | `database.py` | SQLite database operations |
 | `claude_advisor.py` | Claude API integration |
 | `category_engine.py` | Dynamic category management |
+| `budget_coach.py` | Budget recommendations and spending coach UI |
+| `spending_intelligence.py` | Spending velocity and alerts |
 | `pdf_parser.py` | Chase checking statement parser |
 | `chase_report_parser.py` | Chase spending report parser (instant, no AI) |
 | `csv_parser.py` | Capital One / Apple Card CSV parser |
+| `monarch_sync.py` | Monarch Money API sync |
 | `telegram_listener.py` | Telegram bot for Q&A and reports |
-| `spending_intelligence.py` | Spending velocity and alerts |
+| `weekly_reminder.py` | Weekly CSV upload reminders via Telegram |
+| `monthly_reminder.py` | Monthly statement upload reminders via Telegram |
 | `config.py` | Account definitions and category defaults |
 | `prompts/` | Claude prompt templates |
+| `views/` | Streamlit page views (home, transactions, plan, settings) |
+| `shared/` | Reusable UI components, CSS, charts, state management |
 
 ## Accounts Supported
 
-- Chase Freedom/Sapphire (credit card ending 4730)
-- Chase credit card (ending 3072)
-- Capital One (CSV import)
-- Apple Card (CSV import)
-- Chase Joint Checking (ending 3829)
+Configured in `config_private.py` — supports Chase credit cards,
+Chase checking, Capital One, and Apple Card via PDF/CSV import.
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.12+
 - Anthropic API key
 - Telegram bot token (optional, for mobile reports)
 

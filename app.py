@@ -1,5 +1,5 @@
 """
-VaultWise — Kero & Maggie's Financial Command Center
+VaultWise — Family Financial Command Center
 Upload PDF/CSV statements. Claude analyzes, advises, and forecasts.
 """
 
@@ -64,8 +64,8 @@ def _check_password():
 if not _check_password():
     st.stop()
 
-# Temporary debug banner — append ?debug=1 to URL to verify config on Cloud
-if st.query_params.get("debug") == "1":
+# Debug banner — append ?debug=1 to URL AND set VAULTWISE_DEBUG=1 env var
+if st.query_params.get("debug") == "1" and os.environ.get("VAULTWISE_DEBUG") == "1":
     st.warning(
         f"**Config debug**\n\n"
         f"- CATEGORY_MERGES: {getattr(config, 'CATEGORY_MERGES', '⚠️ MISSING')}\n"
@@ -116,21 +116,13 @@ with st.sidebar:
             _monthly_income = _income_data["total_income"] if isinstance(_income_data, dict) else _income_data
             _kero_bonus = _income_data.get("kero_bonus", 0) if isinstance(_income_data, dict) else 0
             _maggie_bonus = _income_data.get("maggie_bonus", 0) if isinstance(_income_data, dict) else 0
+            # Note: bonuses always excluded here for conservative estimate (dashboard has toggles)
             _monthly_income -= (_kero_bonus + _maggie_bonus)
 
             _fixed_costs = sum(config.FIXED_MONTHLY_EXPENSES.values())
 
-            import category_engine
-            _raw_breakdown = database.get_monthly_category_breakdown(conn, current_month)
-            _active_cats = category_engine.get_active_categories(conn)
-            _mb = [c for c in _raw_breakdown if c["category"] in _active_cats]
-
-            # Filter muted + merge sources (same logic as views/home.py)
-            _muted = set(getattr(config, 'MUTED_CATEGORIES', []))
-            _msrc = set()
-            for _srcs in getattr(config, 'CATEGORY_MERGES', {}).values():
-                _msrc.update(_srcs)
-            _mb = [c for c in _mb if c["category"] not in _muted and c["category"] not in _msrc]
+            from shared.filters import get_filtered_breakdown
+            _mb = get_filtered_breakdown(conn, current_month)
             _total_spent = sum(abs(c["total"]) for c in _mb)
 
             _fixed_cats = {"Housing & Utilities", "Debt Payments", "Family Support",

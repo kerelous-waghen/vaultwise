@@ -63,6 +63,16 @@ if not hasattr(_this, "APP_SUBTITLE"):
     APP_SUBTITLE = ""
 if not hasattr(_this, "AUTO_RECATEGORIZE_DAYS"):
     AUTO_RECATEGORIZE_DAYS = 0
+if not hasattr(_this, "EXPENSE_GROWTH_RATE"):
+    EXPENSE_GROWTH_RATE = 0.03  # 3% annual inflation default
+if not hasattr(_this, "FAMILY_ZELLE_NAMES"):
+    FAMILY_ZELLE_NAMES = []
+if not hasattr(_this, "FAMILY_MEMBER_NAMES"):
+    FAMILY_MEMBER_NAMES = []
+if not hasattr(_this, "EXTRACTION_CONTEXT"):
+    EXTRACTION_CONTEXT = ""
+if not hasattr(_this, "SAVINGS_LEVER_CONTEXT"):
+    SAVINGS_LEVER_CONTEXT = ""
 
 # ---------------------------------------------------------------------------
 # Computed values from private data

@@ -260,7 +260,7 @@ def identify_account_from_csv(file_bytes: bytes, filename: str = "") -> Optional
         desc = txn.get("raw_description", "").upper()
         cat = txn.get("category", "")
 
-        # Kero's card markers: Costco, daycare, gas, Amazon
+        # Primary card markers: Costco, daycare, gas, Amazon
         if re.search(r"KIDDIE\s*ACADEMY|KIRKLAND\s*ACADEMY", desc):
             kero_signals += 5  # Daycare is very strong signal
         if re.search(r"COSTCO", desc):
@@ -270,7 +270,7 @@ def identify_account_from_csv(file_bytes: bytes, filename: str = "") -> Optional
         if re.search(r"AMAZON|AMZN", desc):
             kero_signals += 1
 
-        # Maggie's card markers: Nordstrom, fashion, Tuckernuck
+        # Secondary card markers: Nordstrom, fashion, Tuckernuck
         if re.search(r"NORDSTROM|TUCKERNUCK|VINEYARD|ZARA|GAP\b", desc):
             maggie_signals += 3
         if cat == "Clothing & Fashion":

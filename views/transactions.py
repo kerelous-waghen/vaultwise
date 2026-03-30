@@ -15,6 +15,7 @@ import chase_report_parser
 import config
 import csv_parser
 import database
+import models
 import pdf_parser
 from shared.charts import CHART_LAYOUT, CATEGORY_PALETTE
 from shared.state import get_conn, get_advisor, normalize_date, normalize_transactions
@@ -369,9 +370,10 @@ def transactions_page():
             # FIX 1: Add spending-type Tag column
             df["tag"] = df["category"].apply(_get_tag)
 
-            # FIX 2: Filter using MUTED_CATEGORIES
+            # FIX 2: Filter transfers + CC payments + muted categories
             if hide_transfers and cat == "All":
-                df = df[~df["category"].isin(_muted_cats)]
+                _hide_cats = config.EXCLUDED_CATEGORIES | set(_muted_cats)
+                df = df[~df["category"].isin(_hide_cats)]
 
             # FIX 3: Monthly spending summary vs lifetime totals
             _from_mo = start.strftime("%Y-%m")
@@ -383,9 +385,11 @@ def transactions_page():
                 _flex_total = abs(df[(df["amount"] < 0) & (~df["category"].isin(_fixed_cats)) & (~df["category"].isin(_muted_cats))]["amount"].sum())
                 _fixed_total = abs(df[(df["amount"] < 0) & (df["category"].isin(_fixed_cats))]["amount"].sum())
 
-                _spending_money = sum(
-                    v["monthly_net"] for v in config.INCOME.values() if isinstance(v, dict) and "monthly_net" in v
-                ) - sum(config.FIXED_MONTHLY_EXPENSES.values()) - savings_target
+                # Use models.get_income_for_month for consistency with dashboard
+                # Bonuses always excluded here for conservative estimate (dashboard has toggles)
+                _inc = models.get_income_for_month(start.year, start.month)
+                _txn_page_income = _inc["total_income"] - _inc.get("kero_bonus", 0) - _inc.get("maggie_bonus", 0)
+                _spending_money = _txn_page_income - sum(config.FIXED_MONTHLY_EXPENSES.values()) - savings_target
 
                 _c1, _c2, _c3 = st.columns(3)
                 _c1.metric("Flexible Spending", f"${_flex_total:,.0f}",

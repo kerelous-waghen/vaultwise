@@ -28,18 +28,13 @@ import config
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", config.DB_FILENAME)
 
-# Friendly display names for each account
-ACCOUNT_LABELS = {
-    "chase_4730": "Chase 4730",
-    "chase_3072": "Chase 3072",
-    "joint_checking": "Joint Checking 3829",
-}
+# Friendly display names for each account (from config)
+ACCOUNT_LABELS = {acct_id: info.get("label", acct_id) for acct_id, info in config.ACCOUNTS.items()}
 
 # Step-by-step CSV download instructions per account
 ACCOUNT_INSTRUCTIONS = {
-    "chase_4730": "Chase app \u2192 card ending 4730 \u2192 \u2b07 Download activity \u2192 CSV \u2192 Share here",
-    "chase_3072": "Chase app \u2192 card ending 3072 \u2192 \u2b07 Download activity \u2192 CSV \u2192 Share here",
-    "joint_checking": "Chase app \u2192 Checking 3829 \u2192 \u2b07 Download activity \u2192 CSV \u2192 Share here",
+    acct_id: f"Banking app \u2192 {info.get('label', acct_id)} \u2192 \u2b07 Download activity \u2192 CSV \u2192 Share here"
+    for acct_id, info in config.ACCOUNTS.items()
 }
 
 

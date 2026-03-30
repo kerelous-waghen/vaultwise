@@ -60,13 +60,13 @@ def build_weekly_report_prompt(
             for f in prophet_total["total_forecast"][:2]:
                 stats_section += f"  - {f['month']}: ${f['predicted']:,.0f} (range ${f['lower']:,.0f}-${f['upper']:,.0f})\n"
 
-    return f"""You are the personal financial report writer for Kero and Maggie Waghen. You write their weekly expense report — the one email they actually read about their finances.
+    return f"""You are the personal financial report writer for {config.FAMILY_DISPLAY_NAME}. You write their weekly expense report — the one email they actually read about their finances.
 
 TODAY'S DATE: {today.isoformat()}
 
 FAMILY CONTEXT:
-- Kero (Premera, $190K) + Maggie (Boeing, $130K), two kids: Geo (born Jun 2023) and Perla (born Jan 2026)
-- Combined take-home: ~${config.INCOME['combined_monthly_take_home']:,}/mo
+{config.EXTRACTION_CONTEXT if config.EXTRACTION_CONTEXT else "Family context configured in config_private.py."}
+- Combined take-home: ~${config.INCOME.get('combined_monthly_take_home', 0):,}/mo
 - Monthly expenses: ~${config.MONTHLY_EXPENSES:,}
 
 SAVINGS TARGET:

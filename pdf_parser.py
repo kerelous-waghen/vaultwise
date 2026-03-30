@@ -12,6 +12,8 @@ from typing import Optional
 
 import pdfplumber
 
+import config
+
 
 # ── Hashing ───────────────────────────────────────────────────────────────
 
@@ -118,10 +120,10 @@ def identify_account_from_text(text: str) -> Optional[str]:
     has_maggie = bool(re.search(r"MAGGIE|MARGARET|MAGI\s*M|WAGHEN,?\s*M|ELIAS", header))
 
     if has_kero and not has_maggie:
-        # Kero-only → likely Chase 4730 (his card)
+        # Primary cardholder only → likely primary credit card
         signals["chase_4730"] = signals.get("chase_4730", 0) + 20
     elif has_maggie and not has_kero:
-        # Maggie-only → likely Chase 3072 (her card)
+        # Secondary cardholder only → likely secondary credit card
         signals["chase_3072"] = signals.get("chase_3072", 0) + 20
     elif has_kero and has_maggie:
         # Both names → joint checking
@@ -138,7 +140,7 @@ def identify_account_from_text(text: str) -> Optional[str]:
         signals["chase_4730"] = signals.get("chase_4730", 0) + 5
         signals["chase_3072"] = signals.get("chase_3072", 0) + 5
 
-    # "FREEDOM" or "SAPPHIRE" → Kero's card (Freedom/Sapphire are Chase product names)
+    # "FREEDOM" or "SAPPHIRE" → primary card (Freedom/Sapphire are Chase product names)
     if re.search(r"FREEDOM|SAPPHIRE", header):
         signals["chase_4730"] = signals.get("chase_4730", 0) + 25
 
@@ -155,8 +157,9 @@ def identify_account_from_text(text: str) -> Optional[str]:
     if re.search(r"PREMERA|BOEING|PPD\s*\d+|PAYROLL", text_upper):
         signals["joint_checking"] = signals.get("joint_checking", 0) + 20
 
-    # Zelle transfers to NERMEEN or ST GEORGE → checking
-    if re.search(r"ZELLE.*NERMEEN|ZELLE.*ST\.?\s*GEORGE|ZELLE.*1[,.]?500", text_upper):
+    # Zelle transfers to family members → checking
+    _family_names = "|".join(re.escape(n) for n in config.FAMILY_ZELLE_NAMES) if config.FAMILY_ZELLE_NAMES else "NOMATCH"
+    if re.search(rf"ZELLE.*(?:{_family_names})|ZELLE.*1[,.]?500", text_upper):
         signals["joint_checking"] = signals.get("joint_checking", 0) + 15
 
     # MR COOPER mortgage → checking
@@ -168,11 +171,11 @@ def identify_account_from_text(text: str) -> Optional[str]:
         signals["joint_checking"] = signals.get("joint_checking", 0) + 10
 
     # ── Signal 5: Known merchants that appear on specific cards ───────────
-    # Maggie's card (3072) tends to have: Nordstrom, Tuckernuck, fashion
+    # Secondary card tends to have: Nordstrom, Tuckernuck, fashion
     if re.search(r"NORDSTROM|TUCKERNUCK|VINEYARD\s*VINES", text_upper):
         signals["chase_3072"] = signals.get("chase_3072", 0) + 8
 
-    # Kero's card (4730) tends to have: Costco, Amazon, gas stations, daycare
+    # Primary card tends to have: Costco, Amazon, gas stations, daycare
     if re.search(r"KIDDIE\s*ACADEMY|KIRKLAND\s*ACADEMY\s*MONTES", text_upper):
         signals["chase_4730"] = signals.get("chase_4730", 0) + 10
 

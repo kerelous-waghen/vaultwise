@@ -20,32 +20,12 @@ _CAT_COLORS = [
 
 
 def _get_flexible_spending(conn, year_month: str, fixed_cats, muted_cats, merges):
-    """Get flexible spending for a month using same logic as dashboard.
+    """Get flexible spending for a month using centralized filtering.
 
     Returns (total_flexible, category_totals_dict).
     """
-    _raw = database.get_monthly_category_breakdown(conn, year_month)
-    _active = category_engine.get_active_categories(conn)
-    _cats = [c for c in _raw if c["category"] in _active]
-
-    _merge_sources = set()
-    for _target, _sources in merges.items():
-        _merge_sources.update(_sources)
-        _target_entry = next((c for c in _cats if c["category"] == _target), None)
-        for _src in _sources:
-            _src_entry = next((c for c in _cats if c["category"] == _src), None)
-            if _src_entry:
-                if _target_entry:
-                    _target_entry["total"] += _src_entry["total"]
-                    _target_entry["txn_count"] += _src_entry["txn_count"]
-                else:
-                    _src_entry["category"] = _target
-                    _target_entry = _src_entry
-                    _merge_sources.discard(_src)
-
-    _cats = [c for c in _cats
-             if c["category"] not in muted_cats
-             and c["category"] not in _merge_sources]
+    from shared.filters import get_filtered_breakdown
+    _cats = get_filtered_breakdown(conn, year_month)
 
     _flex = [c for c in _cats if c["category"] not in fixed_cats]
     _total = sum(abs(c["total"]) for c in _flex)
@@ -64,17 +44,25 @@ def savings_journey_page():
     _monthly_income = _income_data["total_income"] if isinstance(_income_data, dict) else _income_data
     _kero_bonus = _income_data.get("kero_bonus", 0) if isinstance(_income_data, dict) else 0
     _maggie_bonus = _income_data.get("maggie_bonus", 0) if isinstance(_income_data, dict) else 0
+    # Note: bonuses always excluded here for conservative estimate (dashboard has toggles)
     _monthly_income -= (_kero_bonus + _maggie_bonus)
-    _effective_fixed = sum(config.FIXED_MONTHLY_EXPENSES.values())
-    _savings_target = savings_target
-    _flex_budget = _monthly_income - _effective_fixed - _savings_target
-
-    # ── Category sets ──────────────────────────────────────────────────
+    # Match dashboard: use whichever is higher — config or actual posted bills
+    _config_fixed = sum(config.FIXED_MONTHLY_EXPENSES.values())
     _muted_cats = set(getattr(config, 'MUTED_CATEGORIES', []))
     _fixed_cats = {"Housing & Utilities", "Debt Payments", "Family Support",
                    "Transportation", "Phone & Internet", "Car Insurance"}
     _fixed_cats.update(getattr(config, 'MONARCH_FIXED_MAP', {}).keys())
     _merges = getattr(config, 'CATEGORY_MERGES', {})
+
+    _current_month = _today.strftime("%Y-%m")
+    _raw_breakdown = database.get_monthly_category_breakdown(conn, _current_month)
+    _txn_fixed_plan = sum(
+        abs(c["total"]) for c in _raw_breakdown
+        if c["category"] in _fixed_cats
+    )
+    _effective_fixed = max(_config_fixed, _txn_fixed_plan)
+    _savings_target = savings_target
+    _flex_budget = _monthly_income - _effective_fixed - _savings_target
 
     # ── Get last 6 months of flexible spending ─────────────────────────
     _month_keys = conn.execute("""
