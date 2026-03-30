@@ -391,17 +391,50 @@ def transactions_page():
                 _txn_page_income = _inc["total_income"] - _inc.get("kero_bonus", 0) - _inc.get("maggie_bonus", 0)
                 _spending_money = _txn_page_income - sum(config.FIXED_MONTHLY_EXPENSES.values()) - savings_target
 
-                _c1, _c2, _c3 = st.columns(3)
-                _c1.metric("Flexible Spending", f"${_flex_total:,.0f}",
-                           delta=f"of ${_spending_money:,.0f} budget",
-                           delta_color="inverse")
-                _c2.metric("Fixed Bills", f"${_fixed_total:,.0f}")
-                _c3.metric("Transactions", f"{len(df)}")
+                _flex_color = "#ef4444" if _flex_total > _spending_money else "#22c55e"
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;'
+                    f'background:linear-gradient(135deg,#f8f9fb,#f0f2f6);'
+                    f'border:1px solid #e2e6ed;border-radius:12px;padding:10px 16px;'
+                    f'margin:8px 0;">'
+                    f'<div style="text-align:center;flex:1;">'
+                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Flexible</div>'
+                    f'<div style="font-size:20px;font-weight:700;color:{_flex_color};">${_flex_total:,.0f}</div>'
+                    f'<div style="font-size:10px;color:#94a3b8;">of ${_spending_money:,.0f}</div></div>'
+                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
+                    f'<div style="text-align:center;flex:1;">'
+                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Fixed</div>'
+                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">${_fixed_total:,.0f}</div>'
+                    f'<div style="font-size:10px;color:#94a3b8;">bills</div></div>'
+                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
+                    f'<div style="text-align:center;flex:1;">'
+                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Count</div>'
+                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">{len(df)}</div>'
+                    f'<div style="font-size:10px;color:#94a3b8;">txns</div></div>'
+                    f'</div>', unsafe_allow_html=True)
             else:
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Total Spent", f"${abs(df[df['amount']<0]['amount'].sum()):,.0f}")
-                c2.metric("Credits", f"${df[df['amount']>0]['amount'].sum():,.0f}")
-                c3.metric("Count", len(df))
+                _total_spent = abs(df[df['amount'] < 0]['amount'].sum())
+                _total_credits = df[df['amount'] > 0]['amount'].sum()
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;'
+                    f'background:linear-gradient(135deg,#f8f9fb,#f0f2f6);'
+                    f'border:1px solid #e2e6ed;border-radius:12px;padding:10px 16px;'
+                    f'margin:8px 0;">'
+                    f'<div style="text-align:center;flex:1;">'
+                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Spent</div>'
+                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">${_total_spent:,.0f}</div>'
+                    f'<div style="font-size:10px;color:#94a3b8;">total</div></div>'
+                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
+                    f'<div style="text-align:center;flex:1;">'
+                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Credits</div>'
+                    f'<div style="font-size:20px;font-weight:700;color:#22c55e;">${_total_credits:,.0f}</div>'
+                    f'<div style="font-size:10px;color:#94a3b8;">refunds</div></div>'
+                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
+                    f'<div style="text-align:center;flex:1;">'
+                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Count</div>'
+                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">{len(df)}</div>'
+                    f'<div style="font-size:10px;color:#94a3b8;">txns</div></div>'
+                    f'</div>', unsafe_allow_html=True)
 
             # FIX 1: Build display table with Tag pill column
             display_df = df[["date", "description", "amount", "category", "tag", "account_id"]].copy()
