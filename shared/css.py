@@ -32,6 +32,19 @@ def inject_css():
     }
     .stTabs [aria-selected="true"] { background: white !important; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 
+    /* Nav buttons — compact row */
+    div[data-testid="stHorizontalBlock"]:has(button[kind="primary"]),
+    div[data-testid="stHorizontalBlock"]:has(button[kind="secondary"]) {
+        gap: 6px !important;
+    }
+    div[data-testid="stHorizontalBlock"] button[kind="primary"],
+    div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
+        padding: 6px 4px !important;
+        font-size: 13px !important;
+        min-height: 36px !important;
+        border-radius: 10px !important;
+    }
+
     /* Clean expanders */
     [data-testid="stExpander"] { border: 1px solid #e2e6ed; border-radius: 12px; overflow: hidden; }
     [data-testid="stExpander"] summary { font-weight: 500; }
