@@ -1,6 +1,7 @@
 """Plan page — The Math, Savings Meter, Find Your Savings."""
 
 import json
+import random
 import calendar as _cal
 from datetime import date as _date
 
@@ -10,7 +11,7 @@ import category_engine
 import config
 import database
 import models
-from shared.state import get_conn
+from shared.state import get_conn, get_advisor
 
 # Category colors for the stacked bar
 _CAT_COLORS = [
@@ -93,13 +94,16 @@ def savings_journey_page():
 
     _total_typical = sum(avg for _, avg in _cat_avg_sorted)
 
-    # ── Load saved targets ─────────────────────────────────────────────
+    # ── Load saved targets + minimums ────────────────────────────────
     if "plan_targets" not in st.session_state:
         _saved_raw = database.get_setting(conn, "flex_category_targets", "")
         _saved = json.loads(_saved_raw) if _saved_raw else {}
         st.session_state.plan_targets = {
             cat: _saved.get(cat, avg) for cat, avg in _cat_avg_sorted
         }
+    if "plan_minimums" not in st.session_state:
+        _mins_raw = database.get_setting(conn, "category_min_targets", "")
+        st.session_state.plan_minimums = json.loads(_mins_raw) if _mins_raw else {}
 
     # ══════════════════════════════════════════════════════════════════
     # SECTION 1: THE MATH (compact)
@@ -141,6 +145,200 @@ def savings_journey_page():
     st.caption("Drag sliders left to cut spending. "
                "Watch the savings meter and spending bar update live.")
 
+    # ── Set minimum spending per category ────────────────────────────
+    _cat_mins = st.session_state.plan_minimums
+    with st.expander("Set minimum spending per category"):
+        _mins_changed = False
+        # 2-column layout for compact mobile view
+        for _row_start in range(0, len(_cat_avg_sorted), 2):
+            _row_cats = _cat_avg_sorted[_row_start:_row_start + 2]
+            _cols = st.columns(len(_row_cats))
+            for _col, (cat, avg) in zip(_cols, _row_cats):
+                _min_key = f"min_{cat}"
+                _cur_min = _cat_mins.get(cat, 0)
+                # Truncate long names for mobile
+                _short = cat[:18] + "…" if len(cat) > 18 else cat
+                _new_min = _col.number_input(
+                    _short, min_value=0, max_value=avg, value=_cur_min,
+                    step=25, key=_min_key,
+                )
+                if _new_min != _cur_min:
+                    _cat_mins[cat] = _new_min
+                    _mins_changed = True
+        if _mins_changed:
+            st.session_state.plan_minimums = _cat_mins
+            database.set_setting(conn, "category_min_targets",
+                                 json.dumps(_cat_mins))
+            # Enforce: push any slider below its new minimum up
+            for cat, avg in _cat_avg_sorted:
+                _floor = _cat_mins.get(cat, 0)
+                if st.session_state.plan_targets.get(cat, avg) < _floor:
+                    st.session_state.plan_targets[cat] = _floor
+
+    # Realism check: can the target be hit with these minimums?
+    _min_total = sum(_cat_mins.get(cat, 0) for cat, _ in _cat_avg_sorted)
+    _target_achievable = _min_total <= _flex_budget
+    if not _target_achievable:
+        _shortfall = _min_total - _flex_budget
+        st.warning(
+            f"With your minimum floors (totaling ${_min_total:,}), "
+            f"the ${savings_target:,}/mo savings target is ${_shortfall:,.0f} "
+            f"short. Claude will get as close as possible."
+        )
+
+    # ── Recommend a Plan button ────────────────────────────────────
+    if st.button("Recommend a Plan", icon="✨", use_container_width=True):
+        advisor = get_advisor()
+        if advisor:
+            # Current month actual spending per category
+            _current_spending = _month_cat_totals.get(_current_month, {})
+
+            _cat_lines = []
+            for cat, avg in _cat_avg_sorted:
+                _cur = _current_spending.get(cat, 0)
+                _floor = _cat_mins.get(cat, 0)
+                _line = f"- {cat}: avg ${avg:,}/mo, this month ${_cur:,.0f}"
+                if _floor > 0:
+                    _line += f", MIN ${_floor:,} (user set)"
+                _cat_lines.append(_line)
+
+            # Top merchants this month for context
+            _merchant_ctx = ""
+            _top_merchants = conn.execute(
+                """SELECT category, description, SUM(ABS(amount)) as total
+                   FROM transactions
+                   WHERE strftime('%Y-%m', date) = ? AND amount < 0
+                   GROUP BY category, description
+                   ORDER BY total DESC LIMIT 20""",
+                (_current_month,)
+            ).fetchall()
+            if _top_merchants:
+                _merchant_ctx = "TOP MERCHANTS THIS MONTH:\n" + "\n".join(
+                    f"  {m['category']}: {m['description'][:30]} ${m['total']:,.0f}"
+                    for m in _top_merchants
+                ) + "\n\n"
+
+            _days_in = _cal.monthrange(_today.year, _today.month)[1]
+            _days_left = max(_days_in - _today.day, 0)
+
+            _achievability = ""
+            if not _target_achievable:
+                _achievability = (
+                    f"\nNOTE: The user's minimum floors total ${_min_total:,}, "
+                    f"which exceeds the flex budget of ${_flex_budget:,.0f}. "
+                    f"The savings target is NOT fully achievable with these "
+                    f"constraints. Set each category to its minimum floor. "
+                    f'Add a "warning" field to your JSON explaining this.\n'
+                )
+
+            _rec_prompt = (
+                "You are a smart budget planner. Analyze the user's ACTUAL "
+                "spending this month and their historical patterns to create "
+                "a realistic plan that hits their savings target.\n\n"
+                f"INCOME: ${_monthly_income:,.0f}/mo\n"
+                f"FIXED BILLS: ${_effective_fixed:,.0f}/mo\n"
+                f"SAVINGS TARGET: ${savings_target:,}/mo\n"
+                f"FLEX BUDGET: ${_flex_budget:,.0f}/mo — MAXIMUM total for "
+                f"all categories combined\n"
+                f"DAY {_today.day} of {_days_in} ({_days_left} days left)\n\n"
+                f"CATEGORIES (avg = 6-month average, this month = actual):\n"
+                + "\n".join(_cat_lines) + "\n\n"
+                + _merchant_ctx
+                + f"TOTAL TYPICAL: ${_total_typical:,.0f}/mo\n"
+                f"NEEDED CUTS: ${max(_total_typical - _flex_budget, 0):,.0f}\n"
+                + _achievability + "\n"
+                "CRITICAL CONSTRAINTS:\n"
+                f"- Sum of ALL targets MUST be <= ${_flex_budget:,.0f}.\n"
+                "- Categories with MIN values MUST NOT go below that minimum.\n"
+                "- Include EVERY category. No exceptions.\n\n"
+                "BE SMART:\n"
+                "- Look at this month's ACTUAL spending. If a category is "
+                "already low this month, set the target near that level.\n"
+                "- If a category has a big one-time expense (home improvement, "
+                "immigration fees), target $0 or its minimum — it won't recur.\n"
+                "- Groceries are essential — cut modestly (10-25%).\n"
+                "- Healthcare: cut very little.\n"
+                "- Dining Out, Entertainment: highly cuttable (40-70%).\n"
+                "- Online Shopping: cuttable (30-60%).\n"
+                "- Look at the merchants — if spending is spread across many "
+                "small purchases, it's cuttable. If it's one big purchase, "
+                "it may be one-time.\n"
+                "- Round to nearest $25.\n"
+                f"- SEED {random.randint(1, 999)}: vary your approach.\n\n"
+                "VERIFY: Add your targets. "
+                f"Total must be <= ${_flex_budget:,.0f}.\n\n"
+                "Return ONLY valid JSON. No markdown. No code fences.\n"
+                'Example: {"Groceries": 1750, "Dining Out": 300, ...}'
+            )
+            with st.spinner("Claude is thinking..."):
+                try:
+                    _rec = advisor.generate_coach_response(
+                        _rec_prompt, max_tokens=512)
+
+                    # Handle nested response wrappers
+                    if isinstance(_rec, dict) and "response" in _rec:
+                        _inner = _rec["response"]
+                        if isinstance(_inner, dict):
+                            _rec = _inner
+                        elif isinstance(_inner, str):
+                            try:
+                                _rec = json.loads(_inner)
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+
+                    if isinstance(_rec, dict):
+                        # Show warning from Claude if present
+                        _warning = _rec.pop("warning", None)
+
+                        # Apply Claude's targets with min floors
+                        _targets = {}
+                        _avg_map = dict(_cat_avg_sorted)
+                        for cat, avg in _cat_avg_sorted:
+                            _floor = _cat_mins.get(cat, 0)
+                            _raw = _rec.get(cat)
+                            if _raw is not None:
+                                _val = int(float(_raw))
+                            else:
+                                _val = _floor  # missing = use floor
+                            _val = max(_floor, min(_val, avg))
+                            _val = round(_val / 25) * 25
+                            _val = max(_floor, _val)  # re-enforce after rounding
+                            _targets[cat] = _val
+
+                        # Hard constraint: scale down if over budget
+                        _plan_total = sum(_targets.values())
+                        if _plan_total > _flex_budget and _plan_total > 0:
+                            _excess = _plan_total - _flex_budget
+                            # Only scale the cuttable portion (above minimums)
+                            _cuttable = {c: _targets[c] - _cat_mins.get(c, 0)
+                                         for c in _targets
+                                         if _targets[c] > _cat_mins.get(c, 0)}
+                            _cuttable_total = sum(_cuttable.values())
+                            if _cuttable_total > 0:
+                                _cut_ratio = min(_excess / _cuttable_total, 1.0)
+                                for c, headroom in _cuttable.items():
+                                    _cut = round(headroom * _cut_ratio / 25) * 25
+                                    _targets[c] = max(
+                                        _cat_mins.get(c, 0),
+                                        _targets[c] - _cut
+                                    )
+
+                        st.session_state.plan_targets.update(_targets)
+                        # Also update slider widget keys so they reflect new values
+                        for c, v in _targets.items():
+                            st.session_state[f"plan_slider_{c}"] = v
+
+                        if _warning:
+                            st.warning(f"Claude says: {_warning}")
+
+                        st.rerun()
+                    else:
+                        st.error("Unexpected response format. Try again.")
+                except Exception as e:
+                    st.error(f"Could not generate a plan: {str(e)[:120]}")
+        else:
+            st.warning("Set your Anthropic API key in Settings first.")
+
     _main_cats = _cat_avg_sorted[:5]
     _extra_cats = _cat_avg_sorted[5:]
 
@@ -149,12 +347,14 @@ def savings_journey_page():
 
     for i, (cat, typical) in enumerate(_main_cats):
         _key = f"plan_slider_{cat}"
-        _current = st.session_state.plan_targets.get(cat, typical)
-        _current = max(0, min(_current, typical))
+        _floor = _cat_mins.get(cat, 0)
+        # Initialize slider key in session state if not already set
+        if _key not in st.session_state:
+            _init = st.session_state.plan_targets.get(cat, typical)
+            st.session_state[_key] = max(_floor, min(_init, typical))
+        _current = st.session_state[_key]
         _color = _CAT_COLORS[i % len(_CAT_COLORS)]
 
-        # Category header: name + current value on left, typical + badge on right
-        # Slider thumb label is hidden via CSS to prevent overlap
         _cut_preview = typical - _current
         _badge = ""
         if _cut_preview > 0:
@@ -174,7 +374,7 @@ def savings_journey_page():
             f'flex-shrink:0;"></span>'
             f'<span style="font-size:13px;font-weight:500;color:#1a1a2e;">'
             f'{cat}</span>'
-            f'<span style="font-size:13px;font-weight:700;color:{_val_color};'
+            f'<span data-slider-val="{cat}" style="font-size:13px;font-weight:700;color:{_val_color};'
             f'margin-left:8px;">${_current:,}</span></div>'
             f'<div style="display:flex;align-items:center;">'
             f'<span style="font-size:11px;color:#94a3b8;">'
@@ -185,9 +385,8 @@ def savings_journey_page():
 
         val = st.slider(
             label=cat,
-            min_value=0,
+            min_value=_floor,
             max_value=typical,
-            value=_current,
             step=25,
             key=_key,
             label_visibility="collapsed",
@@ -205,8 +404,11 @@ def savings_journey_page():
         ):
             for i, (cat, typical) in enumerate(_extra_cats, start=len(_main_cats)):
                 _key = f"plan_slider_{cat}"
-                _current = st.session_state.plan_targets.get(cat, typical)
-                _current = max(0, min(_current, typical))
+                _floor = _cat_mins.get(cat, 0)
+                if _key not in st.session_state:
+                    _init = st.session_state.plan_targets.get(cat, typical)
+                    st.session_state[_key] = max(_floor, min(_init, typical))
+                _current = st.session_state[_key]
                 _color = _CAT_COLORS[i % len(_CAT_COLORS)]
 
                 _cut_preview = typical - _current
@@ -229,7 +431,7 @@ def savings_journey_page():
                     f'margin-right:6px;"></span>'
                     f'<span style="font-size:12px;color:#1a1a2e;">'
                     f'{cat}</span>'
-                    f'<span style="font-size:12px;font-weight:700;'
+                    f'<span data-slider-val="{cat}" style="font-size:12px;font-weight:700;'
                     f'color:{_val_color};margin-left:6px;">'
                     f'${_current:,}</span></div>'
                     f'<div style="display:flex;align-items:center;">'
@@ -241,9 +443,8 @@ def savings_journey_page():
 
                 val = st.slider(
                     label=cat,
-                    min_value=0,
+                    min_value=_floor,
                     max_value=typical,
-                    value=_current,
                     step=25,
                     key=_key,
                     label_visibility="collapsed",
@@ -251,6 +452,47 @@ def savings_journey_page():
                 st.session_state.plan_targets[cat] = val
                 _total_planned += val
                 _slider_results.append((cat, typical, val, i))
+
+    # ── Live slider value JS ──────────────────────────────────────────
+    st.markdown("""
+    <script>
+    (function() {
+        // Update custom value labels in real-time during slider drag
+        function attachObservers() {
+            const thumbs = document.querySelectorAll('[role="slider"]');
+            thumbs.forEach(function(thumb) {
+                if (thumb._liveObserver) return;  // already attached
+                const observer = new MutationObserver(function() {
+                    const raw = parseInt(thumb.getAttribute('aria-valuenow'), 10);
+                    if (isNaN(raw)) return;
+                    const formatted = '$' + raw.toLocaleString();
+                    // Walk up to the stSlider container, then find preceding label
+                    let container = thumb.closest('[data-testid="stVerticalBlock"]')
+                        || thumb.closest('[data-testid="column"]')
+                        || thumb.parentElement;
+                    // Search siblings above for the data-slider-val span
+                    let el = thumb.closest('[data-testid="stSlider"]');
+                    if (!el) return;
+                    let prev = el.previousElementSibling;
+                    // Walk up through wrappers to find the markdown div
+                    while (prev && !prev.querySelector('[data-slider-val]')) {
+                        prev = prev.previousElementSibling;
+                    }
+                    if (prev) {
+                        const label = prev.querySelector('[data-slider-val]');
+                        if (label) label.textContent = formatted;
+                    }
+                });
+                observer.observe(thumb, { attributes: true, attributeFilter: ['aria-valuenow'] });
+                thumb._liveObserver = true;
+            });
+        }
+        // Run on load and re-run periodically (Streamlit re-renders)
+        attachObservers();
+        setInterval(attachObservers, 1000);
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
     # ── Computed values ──────────────────────────────────────────────
     _total_cuts = _total_typical - _total_planned
