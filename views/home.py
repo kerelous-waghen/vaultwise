@@ -153,7 +153,7 @@ def home_page():
         txn_fixed=_txn_fixed,
     )
 
-    # ── 2. KPI ROW: Savings Rate, Daily Pace, Streak ─────────────────
+    # ── 2. SPENDING COACH — Claude narrative + category cards ─────────
     _disc_budget = _monthly_income - _effective_fixed - savings_target
     _discretionary_left = max(_disc_budget - _txn_discretionary, 0)
     _over_budget = max(_txn_discretionary - _disc_budget, 0)
@@ -161,79 +161,26 @@ def home_page():
     _days_in_month = _monthrange(_sel_year, _sel_month)[1]
     _days_left = max(_days_in_month - min(date.today().day, _days_in_month), 1) if (date.today().year, date.today().month) == (_sel_year, _sel_month) else 0
 
-    # Savings Rate
-    _savings_rate = (_saved / _monthly_income * 100) if _monthly_income > 0 else 0
-    _target_rate = (savings_target / _monthly_income * 100) if _monthly_income > 0 else 0
-
-    # ── KPI strip: compact single-row on mobile ──
-    try:
-        _streak = models.compute_savings_streak(conn, savings_target)
-    except Exception:
-        _streak = 0
-
-    # Savings rate
-    _rate_color = "#ef4444" if _savings_rate < 0 else "#22c55e" if _savings_rate >= _target_rate else "#f59e0b"
-    _rate_val = f"{_savings_rate:.0f}%"
-
-    # Daily budget
+    # Daily budget value for narrative card footer
     if _days_left > 0:
         if _over_budget > 0:
             _daily_val = f"-${_over_budget:,.0f}"
-            _daily_color = "#ef4444"
             _daily_sub = f"{_days_left}d left"
         else:
             _daily_left = _discretionary_left / _days_left
             _daily_val = f"${_daily_left:,.0f}/d"
-            _daily_color = "#22c55e" if _daily_left > 50 else "#f59e0b"
             _daily_sub = f"{_days_left}d left"
     else:
-        _daily_val = "—"
-        _daily_color = "#64748b"
-        _daily_sub = "done"
+        _daily_val = ""
+        _daily_sub = ""
 
     # Streak
+    try:
+        _streak = models.compute_savings_streak(conn, savings_target)
+    except Exception:
+        _streak = 0
     _streak_val = f"{_streak}mo" if _streak > 0 else "0"
-    _streak_color = "#22c55e" if _streak > 0 else "#94a3b8"
 
-    _kpi_html = (
-        f'<div style="display:flex;justify-content:space-between;'
-        f'background:linear-gradient(135deg,#f8f9fb,#f0f2f6);'
-        f'border:1px solid #e2e6ed;border-radius:12px;padding:10px 16px;'
-        f'margin:8px 0;">'
-        # Savings Rate
-        f'<div style="text-align:center;flex:1;">'
-        f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;'
-        f'letter-spacing:0.5px;font-weight:600;">Rate</div>'
-        f'<div style="font-size:20px;font-weight:700;color:{_rate_color};">'
-        f'{_rate_val}</div>'
-        f'<div style="font-size:10px;color:#94a3b8;">target {_target_rate:.0f}%</div>'
-        f'</div>'
-        # Divider
-        f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
-        # Daily Budget
-        f'<div style="text-align:center;flex:1;">'
-        f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;'
-        f'letter-spacing:0.5px;font-weight:600;">Daily</div>'
-        f'<div style="font-size:20px;font-weight:700;color:{_daily_color};">'
-        f'{_daily_val}</div>'
-        f'<div style="font-size:10px;color:#94a3b8;">{_daily_sub}</div>'
-        f'</div>'
-        # Divider
-        f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
-        # Streak
-        f'<div style="text-align:center;flex:1;">'
-        f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;'
-        f'letter-spacing:0.5px;font-weight:600;">Streak</div>'
-        f'<div style="font-size:20px;font-weight:700;color:{_streak_color};">'
-        f'{_streak_val}</div>'
-        f'<div style="font-size:10px;color:#94a3b8;">'
-        f'{"on target" if _streak > 0 else "build it!"}</div>'
-        f'</div>'
-        f'</div>'
-    )
-    st.markdown(_kpi_html, unsafe_allow_html=True)
-
-    # ── 3. SPENDING COACH — Claude-driven summary + category cards ────
     budget_coach.render(
         conn=conn,
         selected_month=selected_month,
@@ -251,6 +198,9 @@ def home_page():
         fixed_cats=_fixed_cats,
         get_advisor_fn=get_advisor,
         escape_fn=escape_dollars,
+        daily_val=_daily_val,
+        daily_sub=_daily_sub,
+        streak_val=_streak_val,
     )
 
     # Detailed financial breakdown
@@ -372,30 +322,19 @@ def home_page():
         st.session_state.dashboard_chat_history = []
     if "dashboard_chat_month" not in st.session_state:
         st.session_state.dashboard_chat_month = ""
+    if "chat_mode" not in st.session_state:
+        st.session_state.chat_mode = "This Month"
+    if "suggested_questions" not in st.session_state:
+        st.session_state.suggested_questions = []
     if st.session_state.dashboard_chat_month != selected_month:
         st.session_state.dashboard_chat_history = []
+        st.session_state.suggested_questions = []
         st.session_state.dashboard_chat_month = selected_month
 
-    # Quick action buttons — 2x2 grid for mobile
     st.divider()
     st.markdown("#### 💬 Ask Your Advisor")
-    _quick_actions = {
-        "Savings Check": "Am I on track to meet my savings target? Show me the numbers.",
-        "Save This Week": "What are 3 specific things I can do THIS WEEK to save money?",
-        "Spending Check": "Compare this month to our average. What's over budget?",
-        "Where to Cut": "Where are the easiest $300/month in cuts?",
-    }
 
-    def _ask_quick(question):
-        st.session_state.dashboard_chat_history.append({"role": "user", "content": question})
-
-    _qi = list(_quick_actions.items())
-    _r1c1, _r1c2 = st.columns(2)
-    _r1c1.button(_qi[0][0], width="stretch", key="quick_0", on_click=_ask_quick, args=(_qi[0][1],))
-    _r1c2.button(_qi[1][0], width="stretch", key="quick_1", on_click=_ask_quick, args=(_qi[1][1],))
-    _r2c1, _r2c2 = st.columns(2)
-    _r2c1.button(_qi[2][0], width="stretch", key="quick_2", on_click=_ask_quick, args=(_qi[2][1],))
-    _r2c2.button(_qi[3][0], width="stretch", key="quick_3", on_click=_ask_quick, args=(_qi[3][1],))
+    _is_historical = st.session_state.chat_mode == "Historical"
 
     # Display chat history
     for msg in st.session_state.dashboard_chat_history:
@@ -411,43 +350,115 @@ def home_page():
 
     if needs_response:
         pending_msg = st.session_state.dashboard_chat_history[-1]["content"]
-        _all_txns = conn.execute(
-            """SELECT date, description, amount, category FROM transactions
-               WHERE strftime('%Y-%m', date) = ? ORDER BY category, date""",
-            (selected_month,),
-        ).fetchall()
-        _txn_lines = [f"{t['date']} | {t['description']} | ${t['amount']:,.2f} | {t['category']}" for t in _all_txns]
-        _txn_context = "\n".join(_txn_lines)
-        _cat_summary = "\n".join(f"  {c['category']}: ${abs(c['total']):,.2f} ({c['txn_count']} txns)" for c in month_breakdown)
 
-        _forecast_lines = ""
-        for _cat in [c["category"] for c in month_breakdown[:8]]:
-            _pf = analytics_cache.get_cached_prophet(conn, _cat)
-            if _pf and _pf.get("forecast"):
-                _next = _pf["forecast"][0]
-                _forecast_lines += f"  {_cat}: ${_next['predicted']:,.0f} predicted next month\n"
+        if _is_historical:
+            # ── Historical mode: 6 months of data ──────────────
+            _trend_data = database.get_spending_trend(conn, months=6)
+            _trend_summary = "\n".join(
+                f"  {r['month']}: spent ${abs(r['spending']):,.0f}, income ${r['income']:,.0f} ({r['txn_count']} txns)"
+                for r in _trend_data
+            )
 
-        _unified_context = (
-            f"DASHBOARD DATA for {month_display}:\n"
-            f"- Income (no bonus): ${_monthly_income:,.0f}\n"
-            f"- Fixed bills: ${_effective_fixed:,.0f}\n"
-            f"- Savings target: ${savings_target:,}/mo\n"
-            f"- Discretionary budget: ${_disc_budget:,.0f}\n"
-            f"- Discretionary spent: ${_txn_discretionary:,.0f}\n"
-            f"- Over budget by: ${_over_budget:,.0f}\n"
-            f"- Days left in month: {_days_left}\n"
-            f"- Saved so far: ${_saved:,.0f}\n"
-            f"- Gap to target: ${_gap:+,.0f}\n"
-            f"- Total tracked: ${total_spent:,.0f} ({sum(c['txn_count'] for c in month_breakdown)} txns)\n\n"
-            f"CATEGORY BREAKDOWN:\n{_cat_summary}\n\n"
-            f"FORECASTS FOR NEXT MONTH:\n{_forecast_lines}\n"
-            f"ALL TRANSACTIONS:\n{_txn_context}\n\n"
-            f"You can explain any number shown on the dashboard, break down any category, "
-            f"explain any transaction, interpret any forecast, or give savings advice. "
-            f"Be realistic. Items already purchased may not be returnable. "
-            f"Focus on: reducing remaining spending this month, planning next month's budget, "
-            f"identifying habits to change, and using forecast data to prevent future overages."
-        )
+            # Per-category monthly history
+            _cat_history_lines = ""
+            for _cat_info in month_breakdown[:10]:
+                _cat_name = _cat_info["category"]
+                _hist = database.get_category_monthly_history(conn, _cat_name, months=6)
+                if _hist:
+                    _monthly = ", ".join(f"{h['month']}: ${abs(h['total']):,.0f}" for h in _hist)
+                    _cat_history_lines += f"  {_cat_name}: {_monthly}\n"
+
+            # Trend analysis from cache
+            _trend_analysis_lines = ""
+            for _cat_info in month_breakdown[:10]:
+                _t = analytics_cache.get_cached_trend(conn, _cat_info["category"])
+                if _t:
+                    _trend_analysis_lines += (
+                        f"  {_cat_info['category']}: {_t.get('direction', '?')}, "
+                        f"avg ${_t.get('mean', 0):,.0f}/mo, "
+                        f"slope ${_t.get('slope_per_month', 0):,.0f}/mo\n"
+                    )
+
+            # All transactions from last 6 months
+            _hist_txns = conn.execute(
+                """SELECT date, description, amount, category FROM transactions
+                   WHERE date >= date('now', '-6 months') AND amount < 0
+                   ORDER BY date DESC""",
+            ).fetchall()
+            _hist_txn_lines = [
+                f"{t['date']} | {t['description']} | ${abs(t['amount']):,.2f} | {t['category']}"
+                for t in _hist_txns
+            ]
+
+            # Current month summary for comparison
+            _cat_summary = "\n".join(
+                f"  {c['category']}: ${abs(c['total']):,.2f} ({c['txn_count']} txns)"
+                for c in month_breakdown
+            )
+
+            _unified_context = (
+                f"HISTORICAL DATA — Last 6 Months\n"
+                f"Current month: {month_display}\n"
+                f"Savings target: ${savings_target:,}/mo\n\n"
+                f"MONTHLY TOTALS (last 6 months):\n{_trend_summary}\n\n"
+                f"CATEGORY HISTORY (monthly spend per category):\n{_cat_history_lines}\n"
+                f"TREND ANALYSIS:\n{_trend_analysis_lines}\n"
+                f"CURRENT MONTH BREAKDOWN:\n{_cat_summary}\n\n"
+                f"ALL TRANSACTIONS (last 6 months, {len(_hist_txn_lines)} total):\n"
+                + "\n".join(_hist_txn_lines) + "\n\n"
+                f"The user is in HISTORICAL mode. They want to compare months, "
+                f"spot trends, find patterns, and understand how spending has changed. "
+                f"Use the multi-month data to answer comparisons, rank months, "
+                f"identify seasonal patterns, and give trend-based advice. "
+                f"Always reference specific months and dollar amounts.\n\n"
+                f"FOLLOW_UP: After your answer, add a blank line then exactly 4 "
+                f"follow-up questions the user might ask next. Each on its own line "
+                f"starting with '- '. Keep each under 55 characters. Make them "
+                f"specific to what you just discussed, not generic."
+            )
+        else:
+            # ── This Month mode: current behavior ──────────────
+            _all_txns = conn.execute(
+                """SELECT date, description, amount, category FROM transactions
+                   WHERE strftime('%Y-%m', date) = ? ORDER BY category, date""",
+                (selected_month,),
+            ).fetchall()
+            _txn_lines = [f"{t['date']} | {t['description']} | ${t['amount']:,.2f} | {t['category']}" for t in _all_txns]
+            _txn_context = "\n".join(_txn_lines)
+            _cat_summary = "\n".join(f"  {c['category']}: ${abs(c['total']):,.2f} ({c['txn_count']} txns)" for c in month_breakdown)
+
+            _forecast_lines = ""
+            for _cat in [c["category"] for c in month_breakdown[:8]]:
+                _pf = analytics_cache.get_cached_prophet(conn, _cat)
+                if _pf and _pf.get("forecast"):
+                    _next = _pf["forecast"][0]
+                    _forecast_lines += f"  {_cat}: ${_next['predicted']:,.0f} predicted next month\n"
+
+            _unified_context = (
+                f"DASHBOARD DATA for {month_display}:\n"
+                f"- Income (no bonus): ${_monthly_income:,.0f}\n"
+                f"- Fixed bills: ${_effective_fixed:,.0f}\n"
+                f"- Savings target: ${savings_target:,}/mo\n"
+                f"- Discretionary budget: ${_disc_budget:,.0f}\n"
+                f"- Discretionary spent: ${_txn_discretionary:,.0f}\n"
+                f"- Over budget by: ${_over_budget:,.0f}\n"
+                f"- Days left in month: {_days_left}\n"
+                f"- Saved so far: ${_saved:,.0f}\n"
+                f"- Gap to target: ${_gap:+,.0f}\n"
+                f"- Total tracked: ${total_spent:,.0f} ({sum(c['txn_count'] for c in month_breakdown)} txns)\n\n"
+                f"CATEGORY BREAKDOWN:\n{_cat_summary}\n\n"
+                f"FORECASTS FOR NEXT MONTH:\n{_forecast_lines}\n"
+                f"ALL TRANSACTIONS:\n{_txn_context}\n\n"
+                f"You can explain any number shown on the dashboard, break down any category, "
+                f"explain any transaction, interpret any forecast, or give savings advice. "
+                f"Be realistic. Items already purchased may not be returnable. "
+                f"Focus on: reducing remaining spending this month, planning next month's budget, "
+                f"identifying habits to change, and using forecast data to prevent future overages.\n\n"
+                f"FOLLOW_UP: After your answer, add a blank line then exactly 4 "
+                f"follow-up questions the user might ask next. Each on its own line "
+                f"starting with '- '. Keep each under 55 characters. Make them "
+                f"specific to what you just discussed, not generic."
+            )
 
         advisor = get_advisor()
         if advisor:
@@ -461,8 +472,30 @@ def home_page():
                             tactical_context={},
                         )
                         response = result.get("response", str(result))
-                        st.markdown(escape_dollars(response))
-                        st.session_state.dashboard_chat_history.append({"role": "assistant", "content": response})
+
+                        # Parse follow-up questions from end of response
+                        _followups = []
+                        _lines = response.rstrip().split("\n")
+                        for _ln in reversed(_lines):
+                            _stripped = _ln.strip()
+                            if _stripped.startswith("- ") and 10 < len(_stripped) < 80:
+                                _followups.insert(0, _stripped[2:].strip().rstrip("?") + "?")
+                            elif _followups:
+                                break
+                        # Strip follow-up block from displayed response
+                        _display_response = response
+                        if len(_followups) >= 2:
+                            _first_q = _followups[0].rstrip("?")[:20]
+                            _cut = response.rfind("- " + _first_q[:15])
+                            if _cut > 0:
+                                _display_response = response[:_cut].rstrip()
+                                # Remove header line if it ends with ":"
+                                if _display_response.rstrip().endswith(":"):
+                                    _display_response = _display_response[:_display_response.rstrip().rfind("\n")].rstrip()
+                            st.session_state.suggested_questions = _followups[:4]
+
+                        st.markdown(escape_dollars(_display_response))
+                        st.session_state.dashboard_chat_history.append({"role": "assistant", "content": _display_response})
                     except Exception as e:
                         st.error("Could not get a response. Please try again.")
                         st.session_state.dashboard_chat_history.append({"role": "assistant", "content": str(e)})
@@ -470,8 +503,50 @@ def home_page():
             with st.chat_message("assistant"):
                 st.warning("Set your Anthropic API key in Settings to use the chat.")
 
-    # ── STICKY CHAT INPUT (always at bottom of screen) ──────────────
-    dash_question = st.chat_input("Ask about spending or savings...")
+    # ── SUGGESTED QUESTIONS + MODE TOGGLE + CHAT INPUT ──────────────
+    # Build question list: follow-ups from Claude or defaults
+    if st.session_state.suggested_questions and len(st.session_state.suggested_questions) >= 4:
+        _sq = st.session_state.suggested_questions[:4]
+        _quick_actions = {q: q for q in _sq}
+    elif _is_historical:
+        _quick_actions = {
+            "6-Month Trend": "How has my spending changed over the last 6 months? What categories are trending up?",
+            "Best Month": "Which was my best savings month in the last 6 months and why?",
+            "Biggest Changes": "Which categories changed the most compared to 6 months ago?",
+            "Seasonal Patterns": "Are there any seasonal spending patterns in my data?",
+        }
+    else:
+        _quick_actions = {
+            "Savings Check": "Am I on track to meet my savings target? Show me the numbers.",
+            "Save This Week": "What are 3 specific things I can do THIS WEEK to save money?",
+            "Spending Check": "Compare this month to our average. What's over budget?",
+            "Where to Cut": "Where are the easiest $300/month in cuts?",
+        }
+
+    def _ask_quick(question):
+        st.session_state.dashboard_chat_history.append({"role": "user", "content": question})
+
+    _qi = list(_quick_actions.items())
+    _r1c1, _r1c2 = st.columns(2)
+    _r1c1.button(_qi[0][0], width="stretch", key="quick_0", on_click=_ask_quick, args=(_qi[0][1],))
+    _r1c2.button(_qi[1][0], width="stretch", key="quick_1", on_click=_ask_quick, args=(_qi[1][1],))
+    _r2c1, _r2c2 = st.columns(2)
+    _r2c1.button(_qi[2][0], width="stretch", key="quick_2", on_click=_ask_quick, args=(_qi[2][1],))
+    _r2c2.button(_qi[3][0], width="stretch", key="quick_3", on_click=_ask_quick, args=(_qi[3][1],))
+
+    _chat_mode = st.segmented_control(
+        "chat_mode_toggle", ["This Month", "Historical"],
+        default=st.session_state.chat_mode,
+        label_visibility="collapsed",
+    )
+    if _chat_mode and _chat_mode != st.session_state.chat_mode:
+        st.session_state.chat_mode = _chat_mode
+        st.session_state.dashboard_chat_history = []
+        st.session_state.suggested_questions = []
+        st.rerun()
+
+    _placeholder = "Ask about this month..." if not _is_historical else "Compare months, spot trends..."
+    dash_question = st.chat_input(_placeholder)
     if dash_question:
         st.session_state.dashboard_chat_history.append({"role": "user", "content": dash_question})
         st.rerun()

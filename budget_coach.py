@@ -222,49 +222,35 @@ def _build_prompt(flex_status, conn, month_key, sel_year, sel_month,
         "DUPLICATE MERCHANTS: If a merchant appears in multiple categories, "
         "note it briefly.\n\n"
         "RETURN a JSON object with:\n\n"
-        '1. "top_card": A short, punchy 1-2 sentence message for the banner '
-        'at the very top of the dashboard. This is the FIRST thing the user '
-        'sees. Rules:\n'
-        '   - Lead with what happened to savings: was the goal met or not?\n'
-        '   - If over budget: say how much came out of savings and name the '
-        '#1 reason in plain words.\n'
-        '   - If under budget (current month): say how much is left to spend '
-        'and that the savings goal is safe.\n'
-        '   - If under budget (past month): celebrate — savings goal was met.\n'
-        '   - If there are days left, give a simple action '
-        '(e.g., "Keep the next 5 days light and it won\'t grow").\n'
-        '   - Keep it conversational — like a friend texting you about '
-        'your finances.\n'
-        '   - Use dollar amounts. No percentages. No jargon.\n'
-        '   Examples:\n'
-        '     - "You\'re $5,300 over your everyday budget — mostly from '
-        'cash withdrawals and home repairs. That\'s $5,300 less going to '
-        'savings."\n'
-        '     - "$470 left to spend with 5 days to go. Your savings goal '
-        'is looking good!"\n'
-        '     - "March stayed under budget — the full $2,000 savings goal '
-        'was met!"\n\n'
-        '2. "top_card_status": "over" | "under" | "tight"\n'
-        '   - "over" if everyday spending exceeded the budget\n'
-        '   - "tight" if under budget but less than $80/day remaining\n'
-        '   - "under" if comfortably under budget\n\n'
-        '3. "headline": 8 words max. Lead with the savings impact.\n'
+        '1. "headline": 8 words max. Lead with the savings impact.\n'
         '   Good: "Savings took a hit this month"\n'
         '   Good: "On track — savings goal is safe"\n'
         '   Bad: "Spent 288% of spending money" (confusing)\n\n'
-        '4. "body": 2-4 sentences, plain language. Rules:\n'
-        '   - Start by stating the situation in one clear sentence: '
-        'how much was spent vs the everyday budget, and what that means '
-        'for savings.\n'
-        '   - Then name the 1-2 biggest categories that drove the result.\n'
-        '   - If forecasts are available, end with what next month looks like.\n'
+        '2. "narrative": 2-4 sentences telling the FULL story ONCE. '
+        'This is the only text the user reads — make it count. Rules:\n'
+        '   - Lead with what happened to savings: goal met or not, '
+        'how much was saved or lost, in dollar terms.\n'
+        '   - Name the 1-2 biggest categories that drove the result.\n'
+        '   - If there are days left in the month, end with a simple '
+        'action (e.g., "Keep the next 5 days light to stop it growing").\n'
+        '   - If forecasts are available, mention next month outlook.\n'
         '   - Use dollar amounts, not percentages. '
-        'Say "$5,300 over" not "288%". Say "2x" or "3x the usual" if needed.\n'
-        '   - NEVER use the phrase "spending money" — say "everyday budget" '
-        'or "everyday spending" instead.\n'
+        'Say "$5,300 over" not "288%".\n'
+        '   - NEVER use "spending money" — say "everyday budget".\n'
         '   - Past tense for completed months.\n'
-        '   - Never suggest returning purchases.\n\n'
-        '5. "categories": array sorted by concern (worst first), each with:\n'
+        '   - Conversational tone — like a friend explaining your finances.\n'
+        '   Examples:\n'
+        '     - "Your everyday spending went $5,300 over budget — mostly '
+        'cash withdrawals and a big home repair. That wiped out the $2,000 '
+        'savings goal plus $3,300 from existing savings. Next month looks '
+        'calmer with home costs dropping back to normal."\n'
+        '     - "$470 left to spend with 5 days to go — your $2,000 '
+        'savings goal is safe! Groceries and dining are both below typical."\n\n'
+        '3. "status": "over" | "tight" | "under"\n'
+        '   - "over" if everyday spending exceeded the budget\n'
+        '   - "tight" if under budget but less than $80/day remaining\n'
+        '   - "under" if comfortably under budget\n\n'
+        '4. "categories": array sorted by concern (worst first), each with:\n'
         '   - "name": exact category name from data above\n'
         '   - "badge": "way over" | "elevated" | "hot pace" | "one-time" | '
         '"normal" | "under pace" | "low"\n'
@@ -302,19 +288,24 @@ def _fallback_response(flex_status, over_budget=0, discretionary_left=0,
                        savings_target=0, days_left=0):
     """Minimal response if Claude is unavailable."""
     if over_budget > 0:
-        top_card = f"Everyday spending went ${over_budget:,.0f} over budget — that came out of savings."
-        top_status = "over"
+        narrative = (
+            f"Everyday spending went ${over_budget:,.0f} over budget — "
+            f"that came out of savings. Check the category breakdown below."
+        )
+        status = "over"
     elif discretionary_left > 0 and days_left > 0:
-        top_card = f"${discretionary_left:,.0f} left to spend. Savings goal is on track."
-        top_status = "under"
+        narrative = (
+            f"${discretionary_left:,.0f} left to spend with {days_left} "
+            f"days to go. Savings goal is on track."
+        )
+        status = "under"
     else:
-        top_card = "Month complete. Check the breakdown below."
-        top_status = "under"
+        narrative = "Month complete. Check the breakdown below."
+        status = "under"
     return {
-        "top_card": top_card,
-        "top_card_status": top_status,
         "headline": "Spending summary",
-        "body": "Claude is unavailable. Here are your spending categories.",
+        "narrative": narrative,
+        "status": status,
         "categories": [
             {
                 "name": s["category"],
@@ -332,14 +323,13 @@ def _fallback_response(flex_status, over_budget=0, discretionary_left=0,
 # RENDERING
 # ═══════════════════════════════════════════════════════════════
 
-def _render_daily_card(coach, escape_fn):
-    """Top-level card: Claude-generated savings impact message."""
+def _render_narrative_card(coach, escape_fn, daily_val="", daily_sub="",
+                           streak_val=""):
+    """Unified narrative card: headline + Claude's story + daily/streak footer."""
 
-    text = coach.get("top_card", "")
-    if not text:
-        return
-
-    status = coach.get("top_card_status", "under")
+    headline = escape_fn(coach.get("headline", "Spending summary"))
+    narrative = escape_fn(coach.get("narrative", coach.get("body", "")))
+    status = coach.get("status", coach.get("top_card_status", "under"))
 
     if status == "over":
         bg, border, accent = "#fef2f2", "#fecaca", "#ef4444"
@@ -348,33 +338,32 @@ def _render_daily_card(coach, escape_fn):
     else:
         bg, border, accent = "#f0fdf4", "#bbf7d0", "#16a34a"
 
-    st.markdown(
-        f'<div style="background:{bg};border:1px solid {border};'
-        f'border-radius:10px;padding:10px 14px;margin-bottom:8px;'
-        f'font-size:0.9rem;line-height:1.5;color:#374151;">'
-        f'{_bold_dollars(escape_fn(text))}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _render_summary(coach, escape_fn):
-    """Claude's summary card."""
-    body = escape_fn(coach.get("body", ""))
-    headline = escape_fn(coach.get("headline", "Spending summary"))
+    # Footer with daily budget + streak
+    footer_parts = []
+    if daily_val:
+        footer_parts.append(f'{daily_val} <span style="color:#9ca3af;">{daily_sub}</span>')
+    if streak_val:
+        footer_parts.append(f'Streak: {streak_val}')
+    footer_html = ""
+    if footer_parts:
+        footer_html = (
+            f'<div style="display:flex;justify-content:space-around;'
+            f'border-top:1px solid {border};margin-top:10px;padding-top:8px;'
+            f'font-size:0.78rem;font-weight:600;color:#374151;">'
+            + ''.join(f'<span>{p}</span>' for p in footer_parts)
+            + '</div>'
+        )
 
     st.markdown(
         f'<div style="'
-        f'background:#f8f7f5;'
-        f'border:1px solid #e8e5df;'
-        f'border-radius:12px;'
-        f'padding:14px 16px;'
-        f'margin-bottom:12px;'
-        f'">'
+        f'background:{bg};border:1px solid {border};'
+        f'border-left:4px solid {accent};'
+        f'border-radius:12px;padding:14px 16px;margin-bottom:12px;">'
         f'<div style="font-weight:700;font-size:0.95rem;color:#1a1a2e;'
         f'margin-bottom:6px;">{headline}</div>'
         f'<div style="font-size:0.85rem;line-height:1.55;color:#555;">'
-        f'{body}</div>'
+        f'{_bold_dollars(narrative)}</div>'
+        f'{footer_html}'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -424,19 +413,9 @@ def _render_category_card(cat_info, spent, typical, escape_fn):
 
     badge_bg, badge_fg = _badge_style(badge)
 
-    # Card border/bg tint by severity
-    if any(w in badge.lower() for w in ("way over", "elevated")):
-        card_bg = "#fef2f2"
-        card_border = color
-    elif any(w in badge.lower() for w in ("hot", "one-time", "spike")):
-        card_bg = "#fffbeb"
-        card_border = "#f59e0b"
-    elif "normal" in badge.lower():
-        card_bg = "#f8fafc"
-        card_border = "#e2e8f0"
-    else:
-        card_bg = "#f0fdf4"
-        card_border = "#bbf7d0"
+    # Card: neutral white bg, left accent border for severity color
+    card_bg = "#ffffff"
+    card_border = "#e5e7eb"
 
     # Bar percentage: spent vs typical (capped at 100)
     bar_pct = min(round(spent / max(typical, 1) * 100), 100) if typical > 0 else 50
@@ -598,10 +577,10 @@ def render(conn, selected_month, sel_year, sel_month,
            monthly_income, effective_fixed, savings_target,
            disc_budget, txn_discretionary, discretionary_left,
            over_budget, days_left, days_in_month, fixed_cats,
-           get_advisor_fn, escape_fn):
+           get_advisor_fn, escape_fn,
+           daily_val="", daily_sub="", streak_val=""):
     """
-    Main entry point. Renders the daily card, Claude-driven spending
-    summary, and category cards. Call this from views/home.py.
+    Main entry point. Renders Claude narrative card + category cards.
     """
 
     viewing_current = days_left > 0
@@ -620,7 +599,7 @@ def render(conn, selected_month, sel_year, sel_month,
         "SELECT COUNT(*) as c FROM transactions WHERE strftime('%Y-%m', date) = ?",
         (selected_month,)
     ).fetchone()["c"]
-    cache_key = f"coach_{selected_month}_{int(txn_discretionary)}_{sel_day}_{_month_txn_count}"
+    cache_key = f"coach_v2_{selected_month}_{int(txn_discretionary)}_{sel_day}_{_month_txn_count}"
     if cache_key not in st.session_state:
         st.session_state[cache_key] = None
 
@@ -644,8 +623,8 @@ def render(conn, selected_month, sel_year, sel_month,
     if not coach:
         return
 
-    # ── Daily card (Claude-generated) ─────────────────────────
-    _render_daily_card(coach, escape_fn)
+    # ── Narrative card (unified: headline + story + daily/streak) ──
+    _render_narrative_card(coach, escape_fn, daily_val, daily_sub, streak_val)
 
     # ── Sort by severity ─────────────────────────────────────
     severity_map = {
@@ -672,14 +651,13 @@ def render(conn, selected_month, sel_year, sel_month,
 
     coach["categories"].sort(key=_badge_sort)
 
-    # ── Render summary ───────────────────────────────────────
-    _render_summary(coach, escape_fn)
-
-    # ── Render category cards ────────────────────────────────
+    # ── Section divider + category cards ─────────────────────
     st.markdown(
-        '<div style="font-size:0.68rem;color:#aaa;font-weight:700;'
-        'text-transform:uppercase;letter-spacing:0.6px;'
-        'margin:8px 0 6px 2px;">Everyday Spending Breakdown</div>',
+        '<div style="margin:20px 0 10px;border-top:2px solid #e5e7eb;'
+        'padding-top:10px;">'
+        '<span style="font-size:0.72rem;color:#6b7280;font-weight:700;'
+        'text-transform:uppercase;letter-spacing:0.6px;">'
+        'Everyday Spending Breakdown</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -727,35 +705,11 @@ def render(conn, selected_month, sel_year, sel_month,
             spent, typical, median_val, percentile, color, escape_fn,
         )
 
-    # ── Savings dip callout ──────────────────────────────────
-    if over_budget > 0:
-        period = "this" if viewing_current else "that"
-        actual_saved = max(savings_target - over_budget, 0)
-        if actual_saved > 0:
-            msg = (
-                f'Instead of saving \\${savings_target:,} {period} month, '
-                f'only ~\\${actual_saved:,.0f} went to savings '
-                f'(\\${over_budget:,.0f} was used for everyday spending).'
-            )
-        else:
-            msg = (
-                f'The \\${savings_target:,} savings goal was fully used up, '
-                f'plus an extra \\${over_budget - savings_target:,.0f} came '
-                f'from existing savings.'
-            )
-        st.markdown(
-            f'<div style="background:#fef2f2;border:1px solid #fecaca;'
-            f'border-radius:10px;padding:10px 14px;margin-top:8px;'
-            f'font-size:0.84rem;color:#991b1b;">'
-            f'{msg}</div>',
-            unsafe_allow_html=True,
-        )
-
     # ── Refresh button ─────────────────────────────────────
     if st.button("\U0001f504 Refresh Analysis", key=f"refresh_{selected_month}"):
         keys_to_clear = [
             k for k in st.session_state.keys()
-            if k.startswith(f"coach_{selected_month}")
+            if k.startswith(f"coach_v2_{selected_month}") or k.startswith(f"coach_{selected_month}")
         ]
         for k in keys_to_clear:
             del st.session_state[k]

@@ -49,25 +49,21 @@ def render_savings_gauge(month_display, saved, gauge_color, status_icon, status_
         st.markdown(html, unsafe_allow_html=True)
         return
 
-    # Full dashboard gauge
+    # Full dashboard gauge — simplified: title, saved, progress bar, target
+    save_pct = min(max(saved / savings_target * 100, 0), 100) if savings_target > 0 else 0
     html = (
-        f'<div style="background:#f8f9fb;border:1px solid #e2e6ed;border-radius:14px;padding:14px 16px;margin-bottom:16px;">'
+        f'<div style="background:#f8f9fb;border:1px solid #e2e6ed;border-radius:14px;padding:14px 16px;margin-bottom:12px;">'
         f'<div class="gauge-header" style="margin-bottom:8px;">'
         f'<span style="font-weight:700;font-size:clamp(0.85rem,3vw,1rem);">🎯 {month_display} Savings Goal</span>'
         f'<span style="font-weight:700;font-size:clamp(0.9rem,3.5vw,1.1rem);color:{gauge_color};">{status_icon} {D}{saved:,.0f} saved</span>'
         f'</div>'
         f'<div style="height:12px;border-radius:6px;background:#e5e7eb;overflow:hidden;margin:8px 0;">'
-        f'<div style="height:100%;width:{min(spent_pct, 100):.0f}%;background:{gauge_color};border-radius:6px;transition:width 0.3s;"></div>'
+        f'<div style="height:100%;width:{save_pct:.0f}%;background:{gauge_color};border-radius:6px;transition:width 0.3s;"></div>'
         f'</div>'
-        f'<div class="gauge-footer gauge-detail" style="color:#6b7280;margin-top:4px;">'
-        f'<span>{D}{total_outflow:,.0f} of {D}{budget_limit:,.0f} budget</span>'
-        f'<span>Target: {D}{savings_target:,}/mo</span>'
-        f'</div>'
-        f'<div class="gauge-detail" style="color:#9ca3af;margin-top:2px;">Fixed: {D}{effective_fixed:,.0f} · Spending: {D}{txn_discretionary:,.0f}</div>'
+        f'<div style="color:#9ca3af;font-size:0.8rem;margin-top:2px;">Target: {D}{savings_target:,}/mo</div>'
         + (f'<div style="font-size:0.72rem;color:#b45309;margin-top:2px;">Includes {D}{effective_fixed - txn_fixed:,.0f} in fixed bills not yet posted</div>'
            if txn_fixed is not None and effective_fixed > txn_fixed else '')
-        + f'<div style="font-size:clamp(0.75rem,2.5vw,0.85rem);color:{gauge_color};font-weight:600;margin-top:6px;">{status_text}</div>'
-        f'</div>'
+        + f'</div>'
     )
     st.markdown(html, unsafe_allow_html=True)
 
