@@ -81,6 +81,10 @@ MIGRATIONS = [
             );
         """,
     },
+    {
+        "id": "008_seed_fixed_categories",
+        "sql": None,  # Handled in run_pending with Python logic
+    },
 ]
 
 
@@ -118,6 +122,29 @@ def run_pending(conn: sqlite3.Connection) -> list[str]:
                 conn.execute("ALTER TABLE transactions ADD COLUMN tags TEXT DEFAULT NULL")
             except (sqlite3.OperationalError, Exception):
                 pass  # Column already exists
+
+        elif mid == "008_seed_fixed_categories":
+            # Seed category_config with fixed categories from config if empty
+            try:
+                import config as _cfg
+                _existing = conn.execute("SELECT COUNT(*) FROM category_config WHERE type = 'fix'").fetchone()[0]
+                if _existing == 0 and hasattr(_cfg, "FIXED_MONTHLY_EXPENSES"):
+                    _sort = 10
+                    for _name, _budget in _cfg.FIXED_MONTHLY_EXPENSES.items():
+                        conn.execute(
+                            "INSERT OR IGNORE INTO category_config (name, type, monthly_budget, sort_order) VALUES (?, 'fix', ?, ?)",
+                            (_name, _budget, _sort),
+                        )
+                        _sort += 1
+                    # Also seed muted/excluded categories
+                    for _muted in getattr(_cfg, "MUTED_CATEGORIES", []):
+                        conn.execute(
+                            "INSERT OR IGNORE INTO category_config (name, type) VALUES (?, 'exclude')",
+                            (_muted,),
+                        )
+                    conn.commit()
+            except Exception:
+                pass  # Config not available or table issue
 
         elif migration["sql"]:
             conn.executescript(migration["sql"])

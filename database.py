@@ -140,6 +140,29 @@ def init_db(db_path: str = DB_PATH) -> None:
         PRIMARY KEY (week_start, account_id)
     );
 
+    CREATE TABLE IF NOT EXISTS category_config (
+        name           TEXT PRIMARY KEY,
+        type           TEXT NOT NULL DEFAULT 'flex',
+        monthly_budget REAL,
+        sort_order     INTEGER DEFAULT 50,
+        updated_ts     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS category_analytics (
+        category       TEXT PRIMARY KEY,
+        trend_json     TEXT,
+        prophet_json   TEXT,
+        advanced_json  TEXT,
+        merchant_json  TEXT,
+        updated_ts     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS fixed_expense_overrides (
+        category       TEXT PRIMARY KEY,
+        amount         REAL NOT NULL,
+        updated_ts     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_txn_date ON transactions(date);
     CREATE INDEX IF NOT EXISTS idx_txn_category ON transactions(category);
     CREATE INDEX IF NOT EXISTS idx_txn_account ON transactions(account_id);
