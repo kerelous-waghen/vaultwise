@@ -1,5 +1,5 @@
-"""Settings page — One-time configuration.
-Reordered by change frequency: Savings Target > Income > Fixed > Categories > API > Telegram > Monarch > DB.
+"""Settings page — V5 visual design.
+Reordered: Savings Target > Income > AI Suggestion > Integrations > Reports > DB.
 """
 
 import json
@@ -16,247 +16,169 @@ import analytics_cache
 import category_engine
 import config
 import database
+import models
 import reports
 from shared.charts import CHART_LAYOUT, PALETTE, CATEGORY_PALETTE
 from shared.state import get_conn, get_advisor, escape_dollars
 
 
 def settings_page():
-    st.markdown("## Settings")
+    st.markdown('<div style="font-size:18px;font-weight:700;color:var(--vw-text);margin-bottom:16px;">Settings</div>', unsafe_allow_html=True)
     conn = get_conn()
 
-    # ── 1. Savings Target (most frequently changed) ──────────────────
-    st.markdown("#### Savings Target")
-    _set_c1, _set_c2 = st.columns(2)
+    # ── 1. Savings Target ─────────────────────────────────────────────
     _cur_target = int(database.get_setting(conn, "monthly_savings_target", "2000"))
-    _new_target = _set_c1.number_input("Monthly Savings Target ($/mo)", min_value=0, max_value=10000, value=_cur_target, step=100, key="settings_savings_target")
-    if _new_target != _cur_target:
-        database.set_setting(conn, "monthly_savings_target", str(_new_target))
 
-    _period_opts = ["weekly", "biweekly", "monthly"]
-    _cur_period = database.get_setting(conn, "report_period", "weekly")
-    _p_idx = _period_opts.index(_cur_period) if _cur_period in _period_opts else 0
-    _new_period = _set_c2.selectbox("Report Frequency", _period_opts, index=_p_idx,
-        format_func=lambda x: {"weekly": "Every Week", "biweekly": "Every 2 Weeks", "monthly": "Monthly"}[x], key="settings_report_period")
-    if _new_period != _cur_period:
-        database.set_setting(conn, "report_period", _new_period)
-
-    st.divider()
-
-    # ── 2. Income ─────────────────────────────────────────────────────
-    st.markdown("#### Income")
-    _inc_c1, _inc_c2 = st.columns(2)
-
+    # We need income data early to compute savings % of income
     _income_keys = [k for k, v in config.INCOME.items() if isinstance(v, dict) and "biweekly_net" in v]
     _inc_label_1 = config.INCOME_LABELS.get(_income_keys[0], {}).get("settings_label", _income_keys[0].title()) if _income_keys else "Primary"
     _inc_label_2 = config.INCOME_LABELS.get(_income_keys[1] if len(_income_keys) > 1 else "", {}).get("settings_label", _income_keys[1].title() if len(_income_keys) > 1 else "Secondary")
+    _k_bi_default = config.INCOME[_income_keys[0]]["biweekly_net"] if _income_keys else 0
+    _m_bi_default = config.INCOME[_income_keys[1]]["biweekly_net"] if len(_income_keys) > 1 else 0
+    _k_bonus_default = config.INCOME[_income_keys[0]]["bonus_annual_after_tax"] if _income_keys else 0
+    _m_bonus_default = config.INCOME[_income_keys[1]]["bonus_annual_after_tax"] if len(_income_keys) > 1 else 0
+    _k_monthly_pre = round(_k_bi_default * 26 / 12)
+    _m_monthly_pre = round(_m_bi_default * 26 / 12)
+    _k_bonus_spread_pre = round(_k_bonus_default / 12)
+    _m_bonus_spread_pre = round(_m_bonus_default / 12)
+    _combined_pre = _k_monthly_pre + _k_bonus_spread_pre + _m_monthly_pre + _m_bonus_spread_pre
 
-    with _inc_c1:
-        st.markdown(f"**{_inc_label_1}**")
-        _k_bi = st.number_input("Biweekly take-home", value=config.INCOME[_income_keys[0]]["biweekly_net"], step=50, key="kero_biweekly") if _income_keys else 0
-        _k_bonus = st.number_input("Annual bonus (after tax)", value=config.INCOME[_income_keys[0]]["bonus_annual_after_tax"], step=500, key="kero_bonus_annual") if _income_keys else 0
+    _savings_pct = round(_cur_target / max(_combined_pre, 1) * 100)
+    st.markdown(
+        f'<div style="background:var(--vw-card-bg);border-radius:16px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:12px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'<div>'
+        f'<div style="font-size:11px;font-weight:600;color:var(--vw-text-faint);text-transform:uppercase;letter-spacing:0.8px;">Savings Target</div>'
+        f'<div style="font-size:24px;font-weight:800;color:var(--vw-text);margin-top:2px;">${_cur_target:,}<span style="font-size:14px;font-weight:500;color:var(--vw-text-muted);">/mo</span></div>'
+        f'</div>'
+        f'<div style="text-align:right;">'
+        f'<div style="font-size:22px;font-weight:700;color:#2563eb;">{_savings_pct}%</div>'
+        f'<div style="font-size:11px;color:var(--vw-text-muted);">of income</div></div></div>'
+        f'<div style="height:6px;background:var(--vw-progress-bg);border-radius:3px;margin-top:10px;">'
+        f'<div style="height:100%;width:{min(_savings_pct, 100)}%;background:#2563eb;border-radius:3px;"></div></div>'
+        f'</div>', unsafe_allow_html=True)
 
-    with _inc_c2:
-        st.markdown(f"**{_inc_label_2}**")
-        _m_bi = st.number_input("Biweekly take-home", value=config.INCOME[_income_keys[1]]["biweekly_net"], step=50, key="maggie_biweekly") if len(_income_keys) > 1 else 0
-        _m_bonus = st.number_input("Annual bonus (after tax)", value=config.INCOME[_income_keys[1]]["bonus_annual_after_tax"], step=500, key="maggie_bonus_annual") if len(_income_keys) > 1 else 0
+    with st.expander("Edit Savings Target", expanded=False):
+        _set_c1, _set_c2 = st.columns(2)
+        _new_target = _set_c1.number_input("Monthly Savings Target ($/mo)", min_value=0, max_value=10000, value=_cur_target, step=100, key="settings_savings_target")
+        if _new_target != _cur_target:
+            database.set_setting(conn, "monthly_savings_target", str(_new_target))
 
-    _k_monthly = round(_k_bi * 26 / 12)
-    _m_monthly = round(_m_bi * 26 / 12)
-    _k_bonus_spread = round(_k_bonus / 12)
-    _m_bonus_spread = round(_m_bonus / 12)
-    _combined = _k_monthly + _k_bonus_spread + _m_monthly + _m_bonus_spread
-    st.caption(f"Monthly: {_inc_label_1} ${_k_monthly:,} + ${_k_bonus_spread:,} bonus | {_inc_label_2} ${_m_monthly:,} + ${_m_bonus_spread:,} bonus | **Combined: ${_combined:,}/mo**")
+        _period_opts = ["weekly", "biweekly", "monthly"]
+        _cur_period = database.get_setting(conn, "report_period", "weekly")
+        _p_idx = _period_opts.index(_cur_period) if _cur_period in _period_opts else 0
+        _new_period = _set_c2.selectbox("Report Frequency", _period_opts, index=_p_idx,
+            format_func=lambda x: {"weekly": "Every Week", "biweekly": "Every 2 Weeks", "monthly": "Monthly"}[x], key="settings_report_period")
+        if _new_period != _cur_period:
+            database.set_setting(conn, "report_period", _new_period)
 
-    if st.button("Save Income Changes", key="save_income") and len(_income_keys) >= 2:
-        config.INCOME[_income_keys[0]]["biweekly_net"] = _k_bi
-        config.INCOME[_income_keys[0]]["monthly_net"] = _k_monthly
-        config.INCOME[_income_keys[0]]["bonus_annual_after_tax"] = _k_bonus
-        config.INCOME[_income_keys[0]]["bonus_spread_monthly"] = _k_bonus_spread
-        config.INCOME[_income_keys[1]]["biweekly_net"] = _m_bi
-        config.INCOME[_income_keys[1]]["monthly_net"] = _m_monthly
-        config.INCOME[_income_keys[1]]["bonus_annual_after_tax"] = _m_bonus
-        config.INCOME[_income_keys[1]]["bonus_spread_monthly"] = _m_bonus_spread
-        config.INCOME["combined_monthly_take_home"] = _combined
-        database.set_setting(conn, "income_config", json.dumps(config.INCOME))
-        st.success(f"Income updated! Combined: ${_combined:,}/mo")
+    # ── 2. Income ─────────────────────────────────────────────────────
+    # Income overview card (read defaults; inputs are inside expander below)
+    _k_monthly = _k_monthly_pre
+    _m_monthly = _m_monthly_pre
+    _k_bonus_spread = _k_bonus_spread_pre
+    _m_bonus_spread = _m_bonus_spread_pre
+    _combined = _combined_pre
 
-    st.divider()
+    _inc_total = _combined
+    _k_pct = (_k_monthly + _k_bonus_spread) / max(_inc_total, 1) * 100
+    _m_pct = 100 - _k_pct
 
-    # ── 3. Fixed Monthly Expenses ─────────────────────────────────────
-    st.markdown("#### Fixed Monthly Expenses")
+    st.markdown(
+        f'<div style="background:var(--vw-card-bg);border-radius:16px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:12px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+        f'<span style="font-size:11px;font-weight:600;color:var(--vw-text-faint);text-transform:uppercase;letter-spacing:0.8px;">Monthly Income</span>'
+        f'<span style="font-size:16px;font-weight:800;color:var(--vw-text);">${_combined:,}</span></div>'
+        f'<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;">'
+        f'<div style="flex:{_k_pct:.0f};background:#2563eb;"></div>'
+        f'<div style="flex:{_m_pct:.0f};background:#7c3aed;"></div></div>'
+        f'<div style="display:flex;justify-content:space-between;font-size:12px;">'
+        f'<span style="color:var(--vw-text-muted);">{_inc_label_1} ${_k_monthly + _k_bonus_spread:,}</span>'
+        f'<span style="color:var(--vw-text-muted);">{_inc_label_2} ${_m_monthly + _m_bonus_spread:,}</span>'
+        f'</div></div>', unsafe_allow_html=True)
 
-    def _remove_expense(label):
-        config.FIXED_MONTHLY_EXPENSES.pop(label, None)
-        _conn_r = get_conn()
-        database.set_setting(_conn_r, "fixed_expenses_config", json.dumps(config.FIXED_MONTHLY_EXPENSES))
-        _conn_r.close()
+    with st.expander("Edit Income", expanded=False):
+        _inc_c1, _inc_c2 = st.columns(2)
 
-    _exp_changes = {}
-    _exp_cols = st.columns(2)
-    _items = list(config.FIXED_MONTHLY_EXPENSES.items())
-    _half = (len(_items) + 1) // 2
-    for col_idx, col in enumerate(_exp_cols):
-        with col:
-            _slice = _items[col_idx * _half:(col_idx + 1) * _half]
-            for _label, _amt in _slice:
-                _short = _label.split("(")[0].strip()[:30]
-                _inp_col, _del_col = st.columns([4, 1])
-                _new_val = _inp_col.number_input(_short, value=_amt, step=10, key=f"fixed_{_label}")
-                _del_col.button("✕", key=f"del_{_label}", help=f"Remove {_short}",
-                                on_click=_remove_expense, args=(_label,))
-                if _new_val != _amt:
-                    _exp_changes[_label] = _new_val
+        with _inc_c1:
+            st.markdown(f"**{_inc_label_1}**")
+            _k_bi = st.number_input("Biweekly take-home", value=_k_bi_default, step=50, key="kero_biweekly")
+            _k_bonus = st.number_input("Annual bonus (after tax)", value=_k_bonus_default, step=500, key="kero_bonus_annual")
 
-    _new_fixed_total = sum(_exp_changes.get(k, v) for k, v in config.FIXED_MONTHLY_EXPENSES.items())
-    st.caption(f"**Total fixed: ${_new_fixed_total:,}/mo** (+ ~${getattr(config, 'CC_MONTHLY_AVERAGE', 5894):,} credit card avg)")
+        with _inc_c2:
+            st.markdown(f"**{_inc_label_2}**")
+            _m_bi = st.number_input("Biweekly take-home", value=_m_bi_default, step=50, key="maggie_biweekly")
+            _m_bonus = st.number_input("Annual bonus (after tax)", value=_m_bonus_default, step=500, key="maggie_bonus_annual")
 
-    if _exp_changes and st.button("Save Expense Changes", key="save_expenses"):
-        for _label, _val in _exp_changes.items():
-            config.FIXED_MONTHLY_EXPENSES[_label] = _val
-        database.set_setting(conn, "fixed_expenses_config", json.dumps(config.FIXED_MONTHLY_EXPENSES))
-        _new_fixed_total = sum(config.FIXED_MONTHLY_EXPENSES.values())
-        st.success(f"Expenses updated! Total fixed: ${_new_fixed_total:,}/mo")
-        st.rerun()
+        _k_monthly = round(_k_bi * 26 / 12)
+        _m_monthly = round(_m_bi * 26 / 12)
+        _k_bonus_spread = round(_k_bonus / 12)
+        _m_bonus_spread = round(_m_bonus / 12)
+        _combined = _k_monthly + _k_bonus_spread + _m_monthly + _m_bonus_spread
 
-    with st.expander("Add New Expense", expanded=False):
-        _add_c1, _add_c2 = st.columns([3, 1])
-        _new_exp_name = _add_c1.text_input("Expense name", placeholder="e.g. Gym Membership", key="new_exp_name")
-        _new_exp_amt = _add_c2.number_input("$/mo", value=0, step=10, min_value=0, key="new_exp_amt")
-        if st.button("Add Expense", key="add_expense") and _new_exp_name and _new_exp_amt > 0:
-            config.FIXED_MONTHLY_EXPENSES[_new_exp_name] = _new_exp_amt
-            database.set_setting(conn, "fixed_expenses_config", json.dumps(config.FIXED_MONTHLY_EXPENSES))
-            st.success(f"Added {_new_exp_name}: ${_new_exp_amt:,}/mo")
-            st.rerun()
+        if st.button("Save Income Changes", key="save_income") and len(_income_keys) >= 2:
+            config.INCOME[_income_keys[0]]["biweekly_net"] = _k_bi
+            config.INCOME[_income_keys[0]]["monthly_net"] = _k_monthly
+            config.INCOME[_income_keys[0]]["bonus_annual_after_tax"] = _k_bonus
+            config.INCOME[_income_keys[0]]["bonus_spread_monthly"] = _k_bonus_spread
+            config.INCOME[_income_keys[1]]["biweekly_net"] = _m_bi
+            config.INCOME[_income_keys[1]]["monthly_net"] = _m_monthly
+            config.INCOME[_income_keys[1]]["bonus_annual_after_tax"] = _m_bonus
+            config.INCOME[_income_keys[1]]["bonus_spread_monthly"] = _m_bonus_spread
+            config.INCOME["combined_monthly_take_home"] = _combined
+            database.set_setting(conn, "income_config", json.dumps(config.INCOME))
+            st.success(f"Income updated! Combined: ${_combined:,}/mo")
 
-    st.divider()
-
-    # ── 4. Categories (moved from Transactions) ──────────────────────
-    st.markdown("#### Categories")
-
-    if "recat_proposals" not in st.session_state:
-        st.session_state.recat_proposals = None
-    if "recat_applied" not in st.session_state:
-        st.session_state.recat_applied = None
-
-    st.markdown("##### Current Categories")
-    st.caption("Edit names, add rows, or delete rows. Changes take effect when you click 'Save Categories'.")
-
-    current_cats = category_engine.get_active_categories(conn)
-    cat_hierarchy = category_engine.get_category_hierarchy(conn)
-    edit_data = []
-    for c in current_cats:
-        info = cat_hierarchy.get(c, {})
-        edit_data.append({"Category": c, "Description": info.get("description", ""), "Keep": True})
-
-    edit_df = pd.DataFrame(edit_data)
-    edited = st.data_editor(
-        edit_df, num_rows="dynamic", width="stretch", hide_index=True,
-        column_config={
-            "Category": st.column_config.TextColumn("Category", width="medium"),
-            "Description": st.column_config.TextColumn("Description", width="large"),
-            "Keep": st.column_config.CheckboxColumn("Keep", default=True, width="small"),
-        },
-    )
-
-    col_save, col_reset = st.columns(2)
-    with col_save:
-        if st.button("Save Categories", type="primary"):
-            kept = edited[edited["Keep"] == True]
-            saved_count = 0
-            for _, row in kept.iterrows():
-                name = str(row["Category"]).strip()
-                desc = str(row["Description"]).strip() if pd.notna(row["Description"]) else ""
-                if name:
-                    database.upsert_category_definition(conn, name=name, description=desc, sort_order=saved_count + 1)
-                    saved_count += 1
-            removed = edited[edited["Keep"] == False]
-            for _, row in removed.iterrows():
-                name = str(row["Category"]).strip()
-                if name:
-                    conn.execute("UPDATE category_definitions SET is_active = 0 WHERE name = ?", (name,))
-            conn.commit()
-            analytics_cache.invalidate(conn)
-            st.success(f"Saved {saved_count} categories.")
-            st.rerun()
-
-    with col_reset:
-        if st.button("Reset to Default"):
-            conn.execute("DELETE FROM category_definitions")
-            conn.commit()
-            analytics_cache.invalidate(conn)
-            st.success("Reset to default categories.")
-            st.rerun()
-
-    st.markdown("##### Ask Claude for Suggestions")
-    st.caption("Claude will analyze your spending patterns and suggest an optimal category structure.")
-
-    guide_text = st.text_area(
-        "Guide Claude (optional)",
-        placeholder="e.g., I don't want Transfers & Payments. Split Costco into groceries vs non-food.",
-        height=80,
-    )
-
-    if st.button("Get Suggestions from Claude"):
-        advisor = get_advisor()
-        if advisor is None:
-            st.error("Claude API key not configured.")
-        else:
-            with st.spinner("Claude is analyzing your transactions..."):
-                try:
-                    result = category_engine.generate_categories(conn, advisor, user_guidance=guide_text)
-                    if guide_text:
-                        result["user_guidance"] = guide_text
-                    st.session_state.recat_proposals = result
-                    st.session_state.recat_applied = None
-                except Exception as e:
-                    st.error(f"Failed: {e}")
-
-    if st.session_state.recat_proposals is not None:
-        result = st.session_state.recat_proposals
-        if result.get("changes_summary"):
-            st.info(f"**Claude's suggestion:** {result['changes_summary']}")
-        proposed = result.get("proposed_categories", [])
-        if proposed:
-            st.markdown(f"**Proposed ({len(proposed)} categories):**")
-            prop_df = pd.DataFrame(proposed)
-            display_cols = [c for c in ["name", "description"] if c in prop_df.columns]
-            if display_cols:
-                st.dataframe(
-                    prop_df[display_cols].rename(columns={"name": "Category", "description": "Description"}),
-                    width="stretch", hide_index=True,
-                )
-        rename_mapping = result.get("rename_mapping", {})
-        if rename_mapping:
-            st.markdown(f"**Renames:** {len(rename_mapping)} categories")
-            for old, new in rename_mapping.items():
-                st.caption(f"{old} → **{new}**")
-        tags = result.get("subcategory_tags", [])
-        if tags:
-            st.caption(f"Suggested tags: {', '.join(tags)}")
-
-        col_apply, col_clear = st.columns(2)
-        with col_apply:
-            if st.session_state.recat_applied is None:
-                if st.button("Apply Claude's Suggestions", type="primary"):
-                    with st.spinner("Applying..."):
-                        applied = category_engine.apply_recategorization(conn, result)
-                        st.session_state.recat_applied = applied
+    # ── AI Suggestion ─────────────────────────────────────────────────
+    try:
+        _streak = models.compute_savings_streak(conn, _cur_target)
+        if _streak >= 3:
+            _suggested_target = int(round(_cur_target * 1.125 / 100) * 100)
+            st.markdown(
+                f'<div class="vw-ai-suggest">'
+                f'<div class="suggest-header"><span style="font-size:14px;">&#11088;</span><span>Claude Suggests</span></div>'
+                f'<div class="suggest-body">Raise target to <strong>${_suggested_target:,}</strong> — '
+                f'you\'ve exceeded ${_cur_target:,} for {_streak} straight months.</div></div>',
+                unsafe_allow_html=True)
+            _ai_c1, _ai_c2 = st.columns(2)
+            with _ai_c1:
+                if st.button(f"Set to ${_suggested_target:,}", type="primary", key="accept_ai_target", use_container_width=True):
+                    database.set_setting(conn, "monthly_savings_target", str(_suggested_target))
                     st.rerun()
-            else:
-                st.success(
-                    f"Applied! {st.session_state.recat_applied['categories_created']} categories created, "
-                    f"{st.session_state.recat_applied['transactions_updated']} transactions updated."
-                )
-        with col_clear:
-            if st.button("Dismiss"):
-                st.session_state.recat_proposals = None
-                st.session_state.recat_applied = None
+            with _ai_c2:
+                st.button("Later", key="dismiss_ai_target", use_container_width=True)
+    except Exception:
+        pass
+
+    # ── Integrations ──────────────────────────────────────────────────
+    st.markdown('<div class="vw-section-label">Integrations</div>', unsafe_allow_html=True)
+
+    # ── Claude API ────────────────────────────────────────────────────
+    current_key = database.get_setting(conn, "anthropic_api_key")
+    _api_status = f"...{current_key[-8:]}" if current_key else "Not configured"
+    _api_color = "#10b981" if current_key else "#ef4444"
+    st.markdown(
+        f'<div style="background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:8px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'<div style="font-size:13px;font-weight:600;color:#1a1a2e;">Claude API</div>'
+        f'<div style="font-size:12px;color:{_api_color};font-weight:500;">{_api_status}</div>'
+        f'</div></div>', unsafe_allow_html=True)
+
+    with st.expander("Claude API Settings", expanded=False):
+        if current_key:
+            st.success(f"API key configured: ...{current_key[-8:]}")
+        else:
+            new_key = st.text_input(
+                "Anthropic API Key", type="password",
+                help="Saved to .env file only — never stored in the cloud database.",
+            )
+            if st.button("Save Key") and new_key:
+                database.set_setting(conn, "anthropic_api_key", new_key)
+                os.environ["ANTHROPIC_API_KEY"] = new_key
+                st.session_state.advisor = None
                 st.rerun()
 
-    st.divider()
-
-    # ── 5. Claude Auto-Update ─────────────────────────────────────────
+    # ── Claude Auto-Update ────────────────────────────────────────────
     st.markdown("#### Auto-Update with Claude")
     st.caption("Claude will analyze your recent transactions and suggest updates to income and expenses.")
     if st.button("Ask Claude to Review My Settings", key="claude_auto_settings"):
@@ -292,28 +214,277 @@ def settings_page():
         else:
             st.warning("Set your API key above first.")
 
-    st.divider()
+    # Telegram card row
+    _tg_token = database.get_setting(conn, "telegram_bot_token")
+    _tg_chat = database.get_setting(conn, "telegram_chat_id")
+    _tg_status = "Connected" if (_tg_token and _tg_chat) else "Not configured"
+    _tg_color = "#10b981" if (_tg_token and _tg_chat) else "#ef4444"
+    st.markdown(
+        f'<div style="background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:8px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'<div style="font-size:13px;font-weight:600;color:#1a1a2e;">Telegram</div>'
+        f'<div style="font-size:12px;color:{_tg_color};font-weight:500;">{_tg_status}</div>'
+        f'</div></div>', unsafe_allow_html=True)
 
-    # ── 6. Claude API ─────────────────────────────────────────────────
-    st.markdown("#### Claude API")
-    current_key = database.get_setting(conn, "anthropic_api_key")
-    if current_key:
-        st.success(f"API key configured: ...{current_key[-8:]}")
-    else:
-        new_key = st.text_input(
-            "Anthropic API Key", type="password",
+    with st.expander("Telegram Bot Setup", expanded=False):
+        st.markdown("""
+        1. Open Telegram, search **@BotFather**, send `/newbot`
+        2. Copy the **bot token**
+        3. Start a chat with your bot, send any message
+        4. Get your chat ID: `https://api.telegram.org/bot<TOKEN>/getUpdates`
+        """)
+
+        token = st.text_input(
+            "Bot Token", value=_tg_token or "", type="password",
             help="Saved to .env file only — never stored in the cloud database.",
         )
-        if st.button("Save Key") and new_key:
-            database.set_setting(conn, "anthropic_api_key", new_key)  # saves to .env only
-            os.environ["ANTHROPIC_API_KEY"] = new_key
-            st.session_state.advisor = None
-            st.rerun()
+        chat = st.text_input(
+            "Chat ID", value=_tg_chat or "",
+            help="Saved to .env file only — never stored in the cloud database.",
+        )
 
-    st.divider()
+        c1, c2 = st.columns(2)
+        if c1.button("Save", key="save_telegram"):
+            if token and chat:
+                database.set_setting(conn, "telegram_bot_token", token)
+                database.set_setting(conn, "telegram_chat_id", chat)
+                st.success("Saved to .env!")
+        if c2.button("Test Connection", key="test_telegram"):
+            if token:
+                try:
+                    from telegram_bot import TelegramReporter
+                    bot = TelegramReporter(token, chat or "test")
+                    info = bot.test_connection()
+                    if info.get("ok"):
+                        st.success(f"Connected: @{info['result']['username']}")
+                        if chat:
+                            bot.send_message("Connected! Your Budget Tracker is ready.")
+                except Exception as e:
+                    st.error(f"Failed: {e}")
 
-    # ── 7. Weekly Reports & Telegram ──────────────────────────────────
-    st.markdown("#### Weekly Reports & Telegram")
+    # ── Monarch Money ────────────────────────────────────────────────
+    try:
+        import monarch_sync
+    except ImportError:
+        st.info("Monarch Money integration requires `curl_cffi`. Install it locally to use this feature.")
+        monarch_sync = None
+
+    _mm_enabled = False
+    _mm_status_text = "Not configured"
+    _mm_status_color = "#ef4444"
+    if monarch_sync:
+        _mm_enabled = database.get_setting(conn, "monarch_enabled", "0") == "1"
+        _mm_stats = monarch_sync.get_sync_stats(conn)
+
+        if _mm_enabled and _mm_stats["last_sync"]:
+            try:
+                _sync_dt = datetime.fromisoformat(_mm_stats["last_sync"])
+                _sync_delta = datetime.now() - _sync_dt
+                if _sync_delta.days > 0:
+                    _sync_ago = f"{_sync_delta.days}d ago"
+                elif _sync_delta.seconds >= 3600:
+                    _sync_ago = f"{_sync_delta.seconds // 3600}h ago"
+                else:
+                    _sync_ago = f"{_sync_delta.seconds // 60}m ago"
+            except (ValueError, TypeError):
+                _sync_ago = "unknown"
+            _mm_status_text = f"{_mm_stats['transaction_count']:,} txns (last: {_sync_ago})"
+            _mm_status_color = "#10b981"
+        elif _mm_enabled:
+            _mm_status_text = "Connected — no sync yet"
+            _mm_status_color = "#f59e0b"
+
+    st.markdown(
+        f'<div style="background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:8px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'<div style="font-size:13px;font-weight:600;color:#1a1a2e;">Monarch Money</div>'
+        f'<div style="font-size:12px;color:{_mm_status_color};font-weight:500;">{_mm_status_text}</div>'
+        f'</div></div>', unsafe_allow_html=True)
+
+    if monarch_sync:
+        with st.expander("Credentials", expanded=not _mm_enabled):
+            # Monarch credentials now come from env vars / st.secrets (not DB)
+            _mm_email = os.environ.get("MONARCH_EMAIL", "")
+            if not _mm_email:
+                try:
+                    _mm_email = st.secrets.get("MONARCH_EMAIL", "")
+                except (FileNotFoundError, KeyError):
+                    pass
+            if _mm_email:
+                st.success(f"Monarch credentials configured via environment (`{_mm_email}`)")
+            else:
+                st.warning(
+                    "Set **MONARCH_EMAIL** and **MONARCH_PASSWORD** in your `.env` file "
+                    "or Streamlit Cloud secrets to connect."
+                )
+
+            _mm_device_uuid = database.get_setting(conn, "monarch_device_uuid", "")
+            _new_device_uuid = st.text_input(
+                "Device UUID", value=_mm_device_uuid, key="mm_device_uuid",
+                help="Required: Open Monarch in browser → DevTools Console → run: localStorage.getItem('monarchDeviceUUID')",
+            )
+            if _new_device_uuid != _mm_device_uuid and _new_device_uuid:
+                database.set_setting(conn, "monarch_device_uuid", _new_device_uuid)
+
+            _mm_c1, _mm_c2 = st.columns(2)
+            if _mm_c1.button("Connect to Monarch", key="mm_connect"):
+                if _mm_email:
+                    with st.spinner("Authenticating..."):
+                        try:
+                            _mm_client = monarch_sync.get_client(conn)
+                            database.set_setting(conn, "monarch_enabled", "1")
+                            st.success("Connected to Monarch Money!")
+                            _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
+                            _suggested = monarch_sync.auto_suggest_mapping(_mm_accounts)
+                            if _suggested:
+                                monarch_sync.set_account_mapping(conn, _suggested)
+                            _mm_cats = monarch_sync.fetch_categories(_mm_client)
+                            _default_cat_map = monarch_sync.build_default_category_mapping(_mm_cats)
+                            monarch_sync.set_category_mapping(conn, _default_cat_map)
+                            st.rerun()
+                        except monarch_sync.MonarchEmailOTPRequired:
+                            st.session_state.mm_email_otp_needed = True
+                            st.rerun()
+                        except monarch_sync.MonarchMFARequired:
+                            st.session_state.mm_mfa_needed = True
+                            st.rerun()
+                        except monarch_sync.MonarchAuthFailed:
+                            st.error("Monarch authentication failed. Check your email and password.")
+                        except Exception:
+                            st.error("Could not connect to Monarch. Please try again.")
+                else:
+                    st.warning("Configure MONARCH_EMAIL and MONARCH_PASSWORD in .env first.")
+
+            if _mm_c2.button("Disconnect", key="mm_disconnect", disabled=not _mm_enabled):
+                monarch_sync.disconnect()
+                database.set_setting(conn, "monarch_enabled", "0")
+                database.set_setting(conn, "monarch_last_sync", "")
+                database.set_setting(conn, "monarch_account_map", "{}")
+                database.set_setting(conn, "monarch_category_map", "{}")
+                st.session_state.monarch_synced = False
+                st.success("Disconnected from Monarch Money.")
+                st.rerun()
+
+            if st.session_state.get("mm_email_otp_needed", False):
+                st.warning("Monarch sent a verification code to your email.")
+                _otp_code = st.text_input("Email Verification Code", key="mm_email_otp_code", max_chars=6)
+                if st.button("Verify Code", key="mm_email_otp_verify"):
+                    if _otp_code:
+                        try:
+                            _mm_client = monarch_sync.complete_email_otp(conn, _otp_code)
+                            database.set_setting(conn, "monarch_enabled", "1")
+                            st.session_state.mm_email_otp_needed = False
+                            _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
+                            _suggested = monarch_sync.auto_suggest_mapping(_mm_accounts)
+                            if _suggested:
+                                monarch_sync.set_account_mapping(conn, _suggested)
+                            _mm_cats = monarch_sync.fetch_categories(_mm_client)
+                            _default_cat_map = monarch_sync.build_default_category_mapping(_mm_cats)
+                            monarch_sync.set_category_mapping(conn, _default_cat_map)
+                            st.success("Verified! Connected to Monarch Money.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Verification failed: {e}")
+
+            if st.session_state.get("mm_mfa_needed", False):
+                st.warning("Monarch Money requires a multi-factor authentication code.")
+                _mfa_code = st.text_input("Enter MFA Code", key="mm_mfa_code", max_chars=6)
+                if st.button("Verify MFA", key="mm_mfa_verify"):
+                    if _mfa_code:
+                        try:
+                            _mm_client = monarch_sync.complete_mfa(conn, _mfa_code)
+                            database.set_setting(conn, "monarch_enabled", "1")
+                            st.session_state.mm_mfa_needed = False
+                            _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
+                            _suggested = monarch_sync.auto_suggest_mapping(_mm_accounts)
+                            if _suggested:
+                                monarch_sync.set_account_mapping(conn, _suggested)
+                            _mm_cats = monarch_sync.fetch_categories(_mm_client)
+                            _default_cat_map = monarch_sync.build_default_category_mapping(_mm_cats)
+                            monarch_sync.set_category_mapping(conn, _default_cat_map)
+                            st.success("MFA verified! Connected to Monarch Money.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"MFA verification failed: {e}")
+
+    if monarch_sync and _mm_enabled:
+        with st.expander("Account Mapping"):
+            _acct_map = monarch_sync.get_account_mapping(conn)
+            _vw_options = ["-- Skip --"] + list(config.ACCOUNTS.keys())
+            _vw_labels = {"-- Skip --": "-- Skip --"}
+            for k, v in config.ACCOUNTS.items():
+                _vw_labels[k] = f"{v['label']} ({v['owner']})"
+
+            try:
+                _mm_client = monarch_sync.get_client(conn)
+                _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
+            except Exception:
+                _mm_accounts = []
+                st.warning("Could not fetch Monarch accounts.")
+
+            if _mm_accounts:
+                _new_map = {}
+                for macct in _mm_accounts:
+                    _current = _acct_map.get(macct["id"], "-- Skip --")
+                    _idx = _vw_options.index(_current) if _current in _vw_options else 0
+                    _label = f"{macct['institution']} — {macct['name']}"
+                    if macct["mask"]:
+                        _label += f" (...{macct['mask']})"
+                    _label += f"  |  bal: ${macct['balance']:,.0f}"
+                    _selected = st.selectbox(
+                        _label, _vw_options, index=_idx,
+                        format_func=lambda x: _vw_labels.get(x, x),
+                        key=f"mm_acct_{macct['id']}",
+                    )
+                    if _selected != "-- Skip --":
+                        _new_map[macct["id"]] = _selected
+                if st.button("Save Account Mapping", key="mm_save_acct_map"):
+                    monarch_sync.set_account_mapping(conn, _new_map)
+                    st.success(f"Mapped {len(_new_map)} accounts.")
+
+        with st.expander("Category Mapping"):
+            _cat_map = monarch_sync.get_category_mapping(conn)
+            _vw_cats = config.CATEGORIES
+            if _cat_map:
+                _new_cat_map = {}
+                for mcat, vcat in sorted(_cat_map.items()):
+                    _idx = _vw_cats.index(vcat) if vcat in _vw_cats else _vw_cats.index("Other")
+                    _selected = st.selectbox(mcat, _vw_cats, index=_idx, key=f"mm_cat_{mcat}")
+                    _new_cat_map[mcat] = _selected
+                if st.button("Save Category Mapping", key="mm_save_cat_map"):
+                    monarch_sync.set_category_mapping(conn, _new_cat_map)
+                    st.success("Category mapping saved.")
+            else:
+                st.info("Connect and sync to see Monarch categories.")
+
+        _sync_c1, _sync_c2 = st.columns(2)
+        if _sync_c1.button("Sync Now", key="mm_sync_now"):
+            with st.spinner("Syncing transactions from Monarch..."):
+                try:
+                    _result = monarch_sync.sync_transactions(conn)
+                    if _result["new"] > 0:
+                        st.success(f"Imported {_result['new']} new transactions!")
+                        st.session_state.monarch_synced = True
+                    elif _result["errors"]:
+                        st.warning(f"Sync issue: {_result['errors'][0]}")
+                    else:
+                        st.info(f"Already up to date ({_result['skipped']} duplicates skipped)")
+                except Exception as e:
+                    st.error(f"Sync failed: {e}")
+
+        if _sync_c2.button("Full Re-sync", key="mm_full_sync"):
+            with st.spinner("Full re-sync from Monarch..."):
+                try:
+                    _result = monarch_sync.sync_transactions(conn, force_full=True)
+                    if _result["new"] > 0:
+                        st.success(f"Imported {_result['new']} new transactions!")
+                    else:
+                        st.info(f"No new transactions ({_result['skipped']} duplicates skipped)")
+                except Exception as e:
+                    st.error(f"Full sync failed: {e}")
+
+    # ── Reports ───────────────────────────────────────────────────────
+    st.markdown('<div class="vw-section-label">Reports</div>', unsafe_allow_html=True)
 
     with st.expander("Weekly Report", expanded=False):
         import analytics as _rpt_analytics
@@ -602,261 +773,8 @@ def settings_page():
                 with st.expander(f"{r['report_date']} — {r['subject'] or 'Weekly Report'}"):
                     st.markdown(r["plain_text"] or "")
 
-    # Telegram setup
-    st.markdown("##### Telegram Bot Setup")
-    st.markdown("""
-    1. Open Telegram, search **@BotFather**, send `/newbot`
-    2. Copy the **bot token**
-    3. Start a chat with your bot, send any message
-    4. Get your chat ID: `https://api.telegram.org/bot<TOKEN>/getUpdates`
-    """)
-
-    token = st.text_input(
-        "Bot Token", value=database.get_setting(conn, "telegram_bot_token"), type="password",
-        help="Saved to .env file only — never stored in the cloud database.",
-    )
-    chat = st.text_input(
-        "Chat ID", value=database.get_setting(conn, "telegram_chat_id"),
-        help="Saved to .env file only — never stored in the cloud database.",
-    )
-
-    c1, c2 = st.columns(2)
-    if c1.button("Save", key="save_telegram"):
-        if token and chat:
-            database.set_setting(conn, "telegram_bot_token", token)  # saves to .env only
-            database.set_setting(conn, "telegram_chat_id", chat)  # saves to .env only
-            st.success("Saved to .env!")
-    if c2.button("Test Connection", key="test_telegram"):
-        if token:
-            try:
-                from telegram_bot import TelegramReporter
-                bot = TelegramReporter(token, chat or "test")
-                info = bot.test_connection()
-                if info.get("ok"):
-                    st.success(f"Connected: @{info['result']['username']}")
-                    if chat:
-                        bot.send_message("Connected! Your Budget Tracker is ready.")
-            except Exception as e:
-                st.error(f"Failed: {e}")
-
-    st.divider()
-
-    # ── 8. Monarch Money ──────────────────────────────────────────────
-    st.markdown("#### Monarch Money")
-    try:
-        import monarch_sync
-    except ImportError:
-        st.info("Monarch Money integration requires `curl_cffi`. Install it locally to use this feature.")
-        monarch_sync = None
-
-    _mm_enabled = False
-    if monarch_sync:
-        _mm_enabled = database.get_setting(conn, "monarch_enabled", "0") == "1"
-        _mm_stats = monarch_sync.get_sync_stats(conn)
-
-        if _mm_enabled and _mm_stats["last_sync"]:
-            try:
-                _sync_dt = datetime.fromisoformat(_mm_stats["last_sync"])
-                _sync_delta = datetime.now() - _sync_dt
-                if _sync_delta.days > 0:
-                    _sync_ago = f"{_sync_delta.days}d ago"
-                elif _sync_delta.seconds >= 3600:
-                    _sync_ago = f"{_sync_delta.seconds // 3600}h ago"
-                else:
-                    _sync_ago = f"{_sync_delta.seconds // 60}m ago"
-            except (ValueError, TypeError):
-                _sync_ago = "unknown"
-            st.success(f"Connected — {_mm_stats['transaction_count']:,} transactions synced (last: {_sync_ago})")
-        elif _mm_enabled:
-            st.info("Connected — no sync yet. Click **Sync Now** below.")
-        else:
-            st.info("Connect your Monarch Money account to auto-import transactions.")
-
-        with st.expander("Credentials", expanded=not _mm_enabled):
-            # Monarch credentials now come from env vars / st.secrets (not DB)
-            _mm_email = os.environ.get("MONARCH_EMAIL", "")
-            if not _mm_email:
-                try:
-                    _mm_email = st.secrets.get("MONARCH_EMAIL", "")
-                except (FileNotFoundError, KeyError):
-                    pass
-            if _mm_email:
-                st.success(f"Monarch credentials configured via environment (`{_mm_email}`)")
-            else:
-                st.warning(
-                    "Set **MONARCH_EMAIL** and **MONARCH_PASSWORD** in your `.env` file "
-                    "or Streamlit Cloud secrets to connect."
-                )
-
-            _mm_device_uuid = database.get_setting(conn, "monarch_device_uuid", "")
-            _new_device_uuid = st.text_input(
-                "Device UUID", value=_mm_device_uuid, key="mm_device_uuid",
-                help="Required: Open Monarch in browser → DevTools Console → run: localStorage.getItem('monarchDeviceUUID')",
-            )
-            if _new_device_uuid != _mm_device_uuid and _new_device_uuid:
-                database.set_setting(conn, "monarch_device_uuid", _new_device_uuid)
-
-            _mm_c1, _mm_c2 = st.columns(2)
-            if _mm_c1.button("Connect to Monarch", key="mm_connect"):
-                if _mm_email:
-                    with st.spinner("Authenticating..."):
-                        try:
-                            _mm_client = monarch_sync.get_client(conn)
-                            database.set_setting(conn, "monarch_enabled", "1")
-                            st.success("Connected to Monarch Money!")
-                            _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
-                            _suggested = monarch_sync.auto_suggest_mapping(_mm_accounts)
-                            if _suggested:
-                                monarch_sync.set_account_mapping(conn, _suggested)
-                            _mm_cats = monarch_sync.fetch_categories(_mm_client)
-                            _default_cat_map = monarch_sync.build_default_category_mapping(_mm_cats)
-                            monarch_sync.set_category_mapping(conn, _default_cat_map)
-                            st.rerun()
-                        except monarch_sync.MonarchEmailOTPRequired:
-                            st.session_state.mm_email_otp_needed = True
-                            st.rerun()
-                        except monarch_sync.MonarchMFARequired:
-                            st.session_state.mm_mfa_needed = True
-                            st.rerun()
-                        except monarch_sync.MonarchAuthFailed:
-                            st.error("Monarch authentication failed. Check your email and password.")
-                        except Exception:
-                            st.error("Could not connect to Monarch. Please try again.")
-                else:
-                    st.warning("Configure MONARCH_EMAIL and MONARCH_PASSWORD in .env first.")
-
-            if _mm_c2.button("Disconnect", key="mm_disconnect", disabled=not _mm_enabled):
-                monarch_sync.disconnect()
-                database.set_setting(conn, "monarch_enabled", "0")
-                database.set_setting(conn, "monarch_last_sync", "")
-                database.set_setting(conn, "monarch_account_map", "{}")
-                database.set_setting(conn, "monarch_category_map", "{}")
-                st.session_state.monarch_synced = False
-                st.success("Disconnected from Monarch Money.")
-                st.rerun()
-
-            if st.session_state.get("mm_email_otp_needed", False):
-                st.warning("Monarch sent a verification code to your email.")
-                _otp_code = st.text_input("Email Verification Code", key="mm_email_otp_code", max_chars=6)
-                if st.button("Verify Code", key="mm_email_otp_verify"):
-                    if _otp_code:
-                        try:
-                            _mm_client = monarch_sync.complete_email_otp(conn, _otp_code)
-                            database.set_setting(conn, "monarch_enabled", "1")
-                            st.session_state.mm_email_otp_needed = False
-                            _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
-                            _suggested = monarch_sync.auto_suggest_mapping(_mm_accounts)
-                            if _suggested:
-                                monarch_sync.set_account_mapping(conn, _suggested)
-                            _mm_cats = monarch_sync.fetch_categories(_mm_client)
-                            _default_cat_map = monarch_sync.build_default_category_mapping(_mm_cats)
-                            monarch_sync.set_category_mapping(conn, _default_cat_map)
-                            st.success("Verified! Connected to Monarch Money.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Verification failed: {e}")
-
-            if st.session_state.get("mm_mfa_needed", False):
-                st.warning("Monarch Money requires a multi-factor authentication code.")
-                _mfa_code = st.text_input("Enter MFA Code", key="mm_mfa_code", max_chars=6)
-                if st.button("Verify MFA", key="mm_mfa_verify"):
-                    if _mfa_code:
-                        try:
-                            _mm_client = monarch_sync.complete_mfa(conn, _mfa_code)
-                            database.set_setting(conn, "monarch_enabled", "1")
-                            st.session_state.mm_mfa_needed = False
-                            _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
-                            _suggested = monarch_sync.auto_suggest_mapping(_mm_accounts)
-                            if _suggested:
-                                monarch_sync.set_account_mapping(conn, _suggested)
-                            _mm_cats = monarch_sync.fetch_categories(_mm_client)
-                            _default_cat_map = monarch_sync.build_default_category_mapping(_mm_cats)
-                            monarch_sync.set_category_mapping(conn, _default_cat_map)
-                            st.success("MFA verified! Connected to Monarch Money.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"MFA verification failed: {e}")
-
-    if monarch_sync and _mm_enabled:
-        with st.expander("Account Mapping"):
-            _acct_map = monarch_sync.get_account_mapping(conn)
-            _vw_options = ["-- Skip --"] + list(config.ACCOUNTS.keys())
-            _vw_labels = {"-- Skip --": "-- Skip --"}
-            for k, v in config.ACCOUNTS.items():
-                _vw_labels[k] = f"{v['label']} ({v['owner']})"
-
-            try:
-                _mm_client = monarch_sync.get_client(conn)
-                _mm_accounts = monarch_sync.fetch_accounts(_mm_client)
-            except Exception:
-                _mm_accounts = []
-                st.warning("Could not fetch Monarch accounts.")
-
-            if _mm_accounts:
-                _new_map = {}
-                for macct in _mm_accounts:
-                    _current = _acct_map.get(macct["id"], "-- Skip --")
-                    _idx = _vw_options.index(_current) if _current in _vw_options else 0
-                    _label = f"{macct['institution']} — {macct['name']}"
-                    if macct["mask"]:
-                        _label += f" (...{macct['mask']})"
-                    _label += f"  |  bal: ${macct['balance']:,.0f}"
-                    _selected = st.selectbox(
-                        _label, _vw_options, index=_idx,
-                        format_func=lambda x: _vw_labels.get(x, x),
-                        key=f"mm_acct_{macct['id']}",
-                    )
-                    if _selected != "-- Skip --":
-                        _new_map[macct["id"]] = _selected
-                if st.button("Save Account Mapping", key="mm_save_acct_map"):
-                    monarch_sync.set_account_mapping(conn, _new_map)
-                    st.success(f"Mapped {len(_new_map)} accounts.")
-
-        with st.expander("Category Mapping"):
-            _cat_map = monarch_sync.get_category_mapping(conn)
-            _vw_cats = config.CATEGORIES
-            if _cat_map:
-                _new_cat_map = {}
-                for mcat, vcat in sorted(_cat_map.items()):
-                    _idx = _vw_cats.index(vcat) if vcat in _vw_cats else _vw_cats.index("Other")
-                    _selected = st.selectbox(mcat, _vw_cats, index=_idx, key=f"mm_cat_{mcat}")
-                    _new_cat_map[mcat] = _selected
-                if st.button("Save Category Mapping", key="mm_save_cat_map"):
-                    monarch_sync.set_category_mapping(conn, _new_cat_map)
-                    st.success("Category mapping saved.")
-            else:
-                st.info("Connect and sync to see Monarch categories.")
-
-        _sync_c1, _sync_c2 = st.columns(2)
-        if _sync_c1.button("Sync Now", key="mm_sync_now"):
-            with st.spinner("Syncing transactions from Monarch..."):
-                try:
-                    _result = monarch_sync.sync_transactions(conn)
-                    if _result["new"] > 0:
-                        st.success(f"Imported {_result['new']} new transactions!")
-                        st.session_state.monarch_synced = True
-                    elif _result["errors"]:
-                        st.warning(f"Sync issue: {_result['errors'][0]}")
-                    else:
-                        st.info(f"Already up to date ({_result['skipped']} duplicates skipped)")
-                except Exception as e:
-                    st.error(f"Sync failed: {e}")
-
-        if _sync_c2.button("Full Re-sync", key="mm_full_sync"):
-            with st.spinner("Full re-sync from Monarch..."):
-                try:
-                    _result = monarch_sync.sync_transactions(conn, force_full=True)
-                    if _result["new"] > 0:
-                        st.success(f"Imported {_result['new']} new transactions!")
-                    else:
-                        st.info(f"No new transactions ({_result['skipped']} duplicates skipped)")
-                except Exception as e:
-                    st.error(f"Full sync failed: {e}")
-
-    st.divider()
-
-    # ── 9. Database ───────────────────────────────────────────────────
-    st.markdown("#### Database")
+    # ── Database ──────────────────────────────────────────────────────
+    st.markdown('<div class="vw-section-label">Database</div>', unsafe_allow_html=True)
     txn_count = database.get_transaction_count(conn)
     stmts = database.get_all_statements(conn)
     from shared.state import DB_PATH

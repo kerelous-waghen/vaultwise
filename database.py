@@ -1122,15 +1122,11 @@ def ensure_category_config(conn, category: str, default_type: str = "flex"):
     conn.commit()
 
 
-def get_last_month_fixed(conn) -> dict:
-    """Returns {category: total} for all 'fix' categories from previous month."""
-    today = date.today()
-    if today.month == 1:
-        prev_month, prev_year = 12, today.year - 1
-    else:
-        prev_month, prev_year = today.month - 1, today.year
-    prev_key = f"{prev_year}-{prev_month:02d}"
-
+def _get_fixed_for_month(conn, month_key: str) -> dict:
+    """Returns {category: total} for all 'fix' categories in a given month.
+    Caps each category at its monthly_budget if set (prevents double-billing
+    when e.g. daycare posts on Dec 31 AND Jan 1).
+    """
     fix_cats = get_categories_by_type(conn, "fix")
     if not fix_cats:
         return {}
@@ -1142,8 +1138,33 @@ def get_last_month_fixed(conn) -> dict:
         WHERE strftime('%Y-%m', date) = ? AND amount < 0
           AND category IN ({placeholders})
         GROUP BY category
-    """, (prev_key, *fix_cats)).fetchall()
-    return {r["category"]: round(r["total"], 2) for r in rows}
+    """, (month_key, *fix_cats)).fetchall()
+    result = {r["category"]: round(r["total"], 2) for r in rows}
+
+    # Cap at monthly_budget if set
+    budgets = {r["name"]: r["monthly_budget"] for r in get_all_category_config(conn)
+               if r["monthly_budget"] is not None}
+    for cat in result:
+        if cat in budgets and result[cat] > budgets[cat]:
+            result[cat] = budgets[cat]
+
+    return result
+
+
+def get_last_month_fixed(conn) -> dict:
+    """Returns {category: total} for all 'fix' categories from previous month."""
+    today = date.today()
+    if today.month == 1:
+        prev_month, prev_year = 12, today.year - 1
+    else:
+        prev_month, prev_year = today.month - 1, today.year
+    prev_key = f"{prev_year}-{prev_month:02d}"
+    return _get_fixed_for_month(conn, prev_key)
+
+
+def get_capped_fixed_for_month(conn, month_key: str) -> dict:
+    """Returns {category: total} for fixed categories in any month, with budget caps."""
+    return _get_fixed_for_month(conn, month_key)
 
 
 def get_fixed_expense_overrides(conn) -> dict:
@@ -1159,10 +1180,9 @@ def get_fixed_expense_overrides(conn) -> dict:
 def get_effective_fixed_total(conn) -> float:
     """Returns total fixed: uses overrides where set, last-month actuals otherwise.
 
-    Falls back to config.FIXED_MONTHLY_EXPENSES as a floor — if not all accounts
-    are in Monarch yet, we still know the real fixed bills from config.
+    Falls back to sum of monthly_budget from category_config as a floor — ensures
+    fixed bills are never under-estimated even if transactions haven't posted yet.
     """
-    import config
     last_month = get_last_month_fixed(conn)
     overrides = get_fixed_expense_overrides(conn)
 
@@ -1172,26 +1192,51 @@ def get_effective_fixed_total(conn) -> float:
     for cat in all_cats:
         db_total += overrides.get(cat, last_month.get(cat, 0))
 
-    # Config floor: known fixed bills even if not all in Monarch yet
-    config_total = sum(getattr(config, "FIXED_MONTHLY_EXPENSES", {}).values())
+    # Budget floor: sum of monthly_budget for all fixed categories
+    budget_floor = sum(
+        r["monthly_budget"] or 0
+        for r in get_all_category_config(conn)
+        if r["type"] == "fix"
+    )
 
-    return round(max(db_total, config_total), 2)
+    return round(max(db_total, budget_floor), 2)
 
 
 def get_effective_fixed_detail(conn) -> list:
-    """Returns per-category fixed detail: [{name, last_month, override, effective}, ...]."""
+    """Returns per-category fixed detail: [{name, last_month, override, effective, budget}, ...].
+
+    Includes categories with a monthly_budget even if they have no transactions
+    (e.g. mortgage paid outside Monarch).
+    """
     last_month = get_last_month_fixed(conn)
     overrides = get_fixed_expense_overrides(conn)
-    all_cats = sorted(set(last_month.keys()) | set(overrides.keys()))
+    # Also include fixed categories with a budget set (even if no transactions)
+    budgets = {
+        r["name"]: r["monthly_budget"]
+        for r in get_all_category_config(conn)
+        if r["type"] == "fix" and r["monthly_budget"]
+    }
+    all_cats = sorted(set(last_month.keys()) | set(overrides.keys()) | set(budgets.keys()))
     result = []
     for cat in all_cats:
         lm = last_month.get(cat, 0)
         ov = overrides.get(cat)
+        budget = budgets.get(cat)
+        # Priority: override > last month actual > budget
+        if ov is not None:
+            effective = ov
+        elif lm > 0:
+            effective = lm
+        elif budget:
+            effective = budget
+        else:
+            effective = 0
         result.append({
             "name": cat,
             "last_month": lm,
             "override": ov,
-            "effective": ov if ov is not None else lm,
+            "budget": budget,
+            "effective": effective,
         })
     return result
 

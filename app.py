@@ -10,7 +10,7 @@ import streamlit as st
 import config
 import database
 import models
-from shared.css import inject_css
+from shared.css import inject_css, inject_dark_mode_js
 from shared.state import (
     DB_PATH, init_session, load_persisted_config, monarch_auto_sync,
     get_conn, get_advisor,
@@ -38,6 +38,11 @@ if ('serviceWorker' in navigator) {
 """, height=0)
 
 inject_css()
+
+# Dark mode — persist preference
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+inject_dark_mode_js(st.session_state.dark_mode)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # AUTHENTICATION GATE
@@ -80,14 +85,21 @@ init_session()
 load_persisted_config()
 monarch_auto_sync()
 
-if st.session_state.get("monarch_sync_error"):
-    st.error(f"Monarch sync failed: {st.session_state.monarch_sync_error}")
+_monarch_err = st.session_state.get("monarch_sync_error", "")
+if _monarch_err and "not configured" not in _monarch_err.lower():
+    st.error(f"Monarch sync failed: {_monarch_err}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SIDEBAR — minimal: just API key + savings widget
 # ═══════════════════════════════════════════════════════════════════════════
 with st.sidebar:
+    # Dark mode toggle
+    _dark = st.toggle("🌙 Dark Mode", value=st.session_state.dark_mode, key="dark_toggle")
+    if _dark != st.session_state.dark_mode:
+        st.session_state.dark_mode = _dark
+        st.rerun()
+
     conn = get_conn()
     api_key = database.get_setting(conn, "anthropic_api_key")
     if not api_key:
@@ -166,10 +178,10 @@ with st.sidebar:
 if "active_page" not in st.session_state:
     st.session_state.active_page = "🏠 Home"
 
-_nav_options = ["🏠 Home", "🎯 Plan", "💳 Txns", "⚡ Setup"]
+_nav_options = ["🏠 Home", "🎯 Plan", "💳 Txns", "📂 Cats", "⚡ Setup"]
 _nav_to_page = {
     "🏠 Home": "Home", "💳 Txns": "Transactions",
-    "🎯 Plan": "Savings Journey", "⚡ Setup": "Settings",
+    "🎯 Plan": "Savings Journey", "📂 Cats": "Categories", "⚡ Setup": "Settings",
 }
 
 _selected_nav = st.segmented_control(
@@ -187,6 +199,7 @@ if _selected_nav:
 from views.home import home_page
 from views.transactions import transactions_page
 from views.savings_journey import savings_journey_page
+from views.categories import categories_page
 from views.settings import settings_page
 
 page = _nav_to_page.get(st.session_state.active_page, "Home")
@@ -196,5 +209,7 @@ elif page == "Transactions":
     transactions_page()
 elif page == "Savings Journey":
     savings_journey_page()
+elif page == "Categories":
+    categories_page()
 elif page == "Settings":
     settings_page()

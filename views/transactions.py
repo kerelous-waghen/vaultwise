@@ -1,6 +1,7 @@
 """Transactions page — Upload statements, browse, fix categories."""
 
 import re
+from calendar import monthrange as _monthrange
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -18,13 +19,20 @@ import database
 import models
 import pdf_parser
 from shared.charts import CHART_LAYOUT, CATEGORY_PALETTE
+from shared.components import render_dark_summary, render_txn_group, get_category_icon
 from shared.state import get_conn, get_advisor, normalize_date, normalize_transactions
 
 # ── Spending-type classification (shared across the page) ─────────────
-_muted_cats = set(getattr(config, 'MUTED_CATEGORIES', []))
-_fixed_cats = {"Housing & Utilities", "Debt Payments", "Family Support",
-               "Transportation", "Phone & Internet", "Car Insurance"}
-_fixed_cats.update(getattr(config, 'MONARCH_FIXED_MAP', {}).keys())
+# Initialized lazily once conn is available (see transactions_page)
+_muted_cats = set()
+_fixed_cats = set()
+
+
+def _init_category_sets(conn):
+    global _muted_cats, _fixed_cats
+    from shared.filters import get_excluded_categories, get_fixed_categories
+    _muted_cats = get_excluded_categories(conn)
+    _fixed_cats = get_fixed_categories(conn)
 
 
 def _get_tag(category):
@@ -44,8 +52,9 @@ _TAG_PILLS = {
 
 
 def transactions_page():
-    st.markdown("## Transactions")
+    st.markdown('<div style="font-size:1.4rem;font-weight:700;color:var(--vw-text);margin-bottom:4px;">Transactions</div>', unsafe_allow_html=True)
     conn = get_conn()
+    _init_category_sets(conn)
     txn_count = database.get_transaction_count(conn)
 
     # ── Upload Statements (always visible at top) ─────────────────────
@@ -344,6 +353,8 @@ def transactions_page():
 
     # ── Tab 1: Transaction Browser ──────────────────────────────────────
     with tab_txns:
+        _search_q = st.text_input("\U0001f50d Search transactions", placeholder="Search merchants, categories...", label_visibility="collapsed")
+
         date_range = database.get_date_range(conn)
         _fc1, _fc2 = st.columns(2)
         with _fc1:
@@ -375,6 +386,11 @@ def transactions_page():
                 _hide_cats = config.EXCLUDED_CATEGORIES | set(_muted_cats)
                 df = df[~df["category"].isin(_hide_cats)]
 
+            # Search filter
+            if _search_q:
+                df = df[df["description"].str.contains(_search_q, case=False, na=False) |
+                        df["category"].str.contains(_search_q, case=False, na=False)]
+
             # FIX 3: Monthly spending summary vs lifetime totals
             _from_mo = start.strftime("%Y-%m")
             _to_mo = end.strftime("%Y-%m")
@@ -383,70 +399,89 @@ def transactions_page():
             if _single_month:
                 savings_target = int(database.get_setting(conn, "monthly_savings_target", "2000"))
                 _flex_total = abs(df[(df["amount"] < 0) & (~df["category"].isin(_fixed_cats)) & (~df["category"].isin(_muted_cats))]["amount"].sum())
-                _fixed_total = abs(df[(df["amount"] < 0) & (df["category"].isin(_fixed_cats))]["amount"].sum())
 
                 # Use models.get_income_for_month for consistency with dashboard
-                # Bonuses always excluded here for conservative estimate (dashboard has toggles)
                 _inc = models.get_income_for_month(start.year, start.month)
                 _txn_page_income = _inc["total_income"] - _inc.get("kero_bonus", 0) - _inc.get("maggie_bonus", 0)
                 _spending_money = _txn_page_income - sum(config.FIXED_MONTHLY_EXPENSES.values()) - savings_target
 
-                _flex_color = "#ef4444" if _flex_total > _spending_money else "#22c55e"
-                st.markdown(
-                    f'<div style="display:flex;justify-content:space-between;'
-                    f'background:linear-gradient(135deg,#f8f9fb,#f0f2f6);'
-                    f'border:1px solid #e2e6ed;border-radius:12px;padding:10px 16px;'
-                    f'margin:8px 0;">'
-                    f'<div style="text-align:center;flex:1;">'
-                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Flexible</div>'
-                    f'<div style="font-size:20px;font-weight:700;color:{_flex_color};">${_flex_total:,.0f}</div>'
-                    f'<div style="font-size:10px;color:#94a3b8;">of ${_spending_money:,.0f}</div></div>'
-                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
-                    f'<div style="text-align:center;flex:1;">'
-                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Fixed</div>'
-                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">${_fixed_total:,.0f}</div>'
-                    f'<div style="font-size:10px;color:#94a3b8;">bills</div></div>'
-                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
-                    f'<div style="text-align:center;flex:1;">'
-                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Count</div>'
-                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">{len(df)}</div>'
-                    f'<div style="font-size:10px;color:#94a3b8;">txns</div></div>'
-                    f'</div>', unsafe_allow_html=True)
+                _days_in = _monthrange(start.year, start.month)[1]
+                _days_remaining = max(_days_in - date.today().day, 0) if start.month == date.today().month and start.year == date.today().year else 0
+                render_dark_summary("Flex Spending", _flex_total, max(_spending_money - _flex_total, 0), _spending_money, len(df), _days_remaining)
             else:
                 _total_spent = abs(df[df['amount'] < 0]['amount'].sum())
-                _total_credits = df[df['amount'] > 0]['amount'].sum()
-                st.markdown(
-                    f'<div style="display:flex;justify-content:space-between;'
-                    f'background:linear-gradient(135deg,#f8f9fb,#f0f2f6);'
-                    f'border:1px solid #e2e6ed;border-radius:12px;padding:10px 16px;'
-                    f'margin:8px 0;">'
-                    f'<div style="text-align:center;flex:1;">'
-                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Spent</div>'
-                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">${_total_spent:,.0f}</div>'
-                    f'<div style="font-size:10px;color:#94a3b8;">total</div></div>'
-                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
-                    f'<div style="text-align:center;flex:1;">'
-                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Credits</div>'
-                    f'<div style="font-size:20px;font-weight:700;color:#22c55e;">${_total_credits:,.0f}</div>'
-                    f'<div style="font-size:10px;color:#94a3b8;">refunds</div></div>'
-                    f'<div style="width:1px;background:#e2e6ed;margin:4px 0;"></div>'
-                    f'<div style="text-align:center;flex:1;">'
-                    f'<div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Count</div>'
-                    f'<div style="font-size:20px;font-weight:700;color:#1a1a2e;">{len(df)}</div>'
-                    f'<div style="font-size:10px;color:#94a3b8;">txns</div></div>'
-                    f'</div>', unsafe_allow_html=True)
+                render_dark_summary("Total Spending", _total_spent, 0, _total_spent, len(df), 0)
 
-            # FIX 1: Build display table with Tag pill column
-            display_df = df[["date", "description", "amount", "category", "tag", "account_id"]].copy()
-            display_df.columns = ["Date", "Description", "Amount", "Category", "Type", "Account"]
+            # Group transactions by date for card display
+            df_sorted = df.sort_values("date", ascending=False)
+            _grouped = df_sorted.groupby("date", sort=False)
 
-            st.dataframe(
-                display_df,
-                width="stretch", hide_index=True, height=500,
-                column_config={
-                    "Amount": st.column_config.NumberColumn(format="$%.2f"),
-                },
-            )
+            _group_count = 0
+            for _date_str, _group in _grouped:
+                if _group_count >= 30:
+                    break
+
+                # Format date label
+                try:
+                    _dt = date.fromisoformat(str(_date_str))
+                    if _dt == date.today():
+                        _date_label = "TODAY"
+                    elif _dt == date.today() - timedelta(days=1):
+                        _date_label = "YESTERDAY"
+                    else:
+                        _date_label = _dt.strftime("%b %d").upper()
+                except Exception:
+                    _date_label = str(_date_str).upper()
+
+                _daily_total = _group[_group["amount"] < 0]["amount"].sum()
+
+                # Build transaction rows
+                _txn_rows = []
+                for _, row in _group.iterrows():
+                    _icon, _bg = get_category_icon(row["category"])
+                    _acct_label = config.ACCOUNTS.get(row.get("account_id", ""), {}).get("label", row.get("account_id", ""))
+                    _txn_rows.append({
+                        "icon": _icon,
+                        "bg_color": _bg,
+                        "name": str(row["description"])[:40],
+                        "category": row["category"],
+                        "account": _acct_label,
+                        "amount": row["amount"],
+                    })
+
+                render_txn_group(_date_label, _daily_total, _txn_rows)
+                _group_count += 1
+
+            if _group_count >= 30 and len(_grouped) > 30:
+                if st.button("Show more transactions"):
+                    # Re-render all remaining groups
+                    _extra_count = 0
+                    for _date_str, _group in _grouped:
+                        _extra_count += 1
+                        if _extra_count <= 30:
+                            continue
+                        try:
+                            _dt = date.fromisoformat(str(_date_str))
+                            if _dt == date.today():
+                                _date_label = "TODAY"
+                            elif _dt == date.today() - timedelta(days=1):
+                                _date_label = "YESTERDAY"
+                            else:
+                                _date_label = _dt.strftime("%b %d").upper()
+                        except Exception:
+                            _date_label = str(_date_str).upper()
+                        _daily_total = _group[_group["amount"] < 0]["amount"].sum()
+                        _txn_rows = []
+                        for _, row in _group.iterrows():
+                            _icon, _bg = get_category_icon(row["category"])
+                            _acct_label = config.ACCOUNTS.get(row.get("account_id", ""), {}).get("label", row.get("account_id", ""))
+                            _txn_rows.append({
+                                "icon": _icon, "bg_color": _bg,
+                                "name": str(row["description"])[:40],
+                                "category": row["category"], "account": _acct_label,
+                                "amount": row["amount"],
+                            })
+                        render_txn_group(_date_label, _daily_total, _txn_rows)
 
             # FIX 4: Flag merchants in multiple categories
             _merchant_cats = defaultdict(set)
@@ -500,6 +535,24 @@ def transactions_page():
 
             csv_data = df.to_csv(index=False)
             st.download_button("Export CSV", csv_data, "transactions.csv", "text/csv")
+
+            # V5 Coverage status badge at bottom
+            if coverage:
+                _total_cells_b = 0
+                _filled_cells_b = 0
+                for info in coverage.values():
+                    _mc = info.get("months_covered", [])
+                    _total_cells_b += max(len(_mc), 1)
+                    _filled_cells_b += len(_mc)
+                _cov_pct = (_filled_cells_b / max(_total_cells_b, 1) * 100)
+                _missing = database.get_missing_months(conn)
+                _miss_count = len(_missing) if _missing else 0
+                _miss_text = f" &bull; {_miss_count} missing statement{'s' if _miss_count != 1 else ''}" if _miss_count > 0 else ""
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;margin-top:4px;">'
+                    f'<div style="width:6px;height:6px;border-radius:50%;background:{"#22c55e" if _cov_pct >= 80 else "#f59e0b"};"></div>'
+                    f'<span style="font-size:11px;color:#6b7280;">{_cov_pct:.0f}% coverage{_miss_text}</span>'
+                    f'</div>', unsafe_allow_html=True)
         else:
             st.info("No transactions match these filters.")
 

@@ -23,7 +23,9 @@ import spending_intelligence
 # CONFIG helpers
 # ═══════════════════════════════════════════════════════════════
 
-def _get_muted():
+def _get_muted(conn=None):
+    if conn is not None:
+        return set(database.get_categories_by_type(conn, "exclude"))
     return set(getattr(config, 'MUTED_CATEGORIES', []))
 
 
@@ -35,7 +37,7 @@ def _get_flex_categories(conn, fixed_cats, month_key=None):
     """Get budget status for flexible (non-fixed, non-muted) categories.
     Also handles: merging duplicate categories, hiding $0 categories."""
     all_status = spending_intelligence.get_category_budget_status(conn, month_key=month_key)
-    muted = _get_muted()
+    muted = _get_muted(conn)
     merges = getattr(config, 'CATEGORY_MERGES', {})
     merge_sources = set()
     for sources in merges.values():
@@ -173,7 +175,7 @@ def _build_prompt(flex_status, conn, month_key, sel_year, sel_month,
                 f"(range ${n.get('lower', 0):,.0f}–${n.get('upper', 0):,.0f})"
             )
 
-    excluded = ", ".join(sorted(fixed_cats | _get_muted()))
+    excluded = ", ".join(sorted(fixed_cats | _get_muted(conn)))
 
     # How much of the savings target was protected?
     if txn_discretionary <= disc_budget:

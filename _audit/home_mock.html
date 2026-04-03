@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaultWise — Home Tab Mock v4</title>
+<style>
+  :root {
+    --bg:#fff;--card:#fff;--surface:#f7f8fa;--border:#ebedf0;--bs:#f3f4f6;
+    --tx:#111827;--tx2:#374151;--tx3:#6b7280;--tx4:#9ca3af;--tx5:#d1d5db;
+    --grn:#10b981;--grns:#d1fae5;--amb:#f59e0b;--ambs:#fef3c7;
+    --red:#ef4444;--reds:#fee2e2;--blu:#6366f1;--blus:#e0e7ff;--pur:#8b5cf6;
+    --trk:#f3f4f6;--r:16px;--rs:10px;--sh:0 1px 3px rgba(0,0,0,0.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--surface);color:var(--tx);max-width:440px;margin:0 auto;padding:16px;font-size:14px;-webkit-font-smoothing:antialiased}
+
+  .mnav{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+  .mnav h2{font-size:20px;font-weight:700;letter-spacing:-0.3px}
+  .msel{padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--card)}
+
+  /* Hero */
+  .hero{border-radius:var(--r);padding:20px;color:#fff;margin-bottom:12px;position:relative;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.12)}
+  .hero-warn{background:linear-gradient(135deg,#f59e0b,#d97706)}
+  .hero::after{content:'';position:absolute;top:-40px;right:-40px;width:140px;height:140px;background:rgba(255,255,255,0.06);border-radius:50%}
+  .hero-top{display:flex;justify-content:space-between;align-items:flex-start}
+  .hero-lbl{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;opacity:0.7;font-weight:600}
+  .hero-amt{font-size:38px;font-weight:800;letter-spacing:-1px;margin:2px 0}
+  .hero-sub{font-size:12px;opacity:0.85;line-height:1.5}
+  .hero-sub strong{opacity:1}
+  .sparkline{display:flex;align-items:flex-end;gap:3px;height:36px}
+  .sp-b{width:5px;border-radius:2px 2px 0 0;background:rgba(255,255,255,0.2)}
+  .sp-b.h{background:rgba(255,255,255,0.6)}
+  .sp-n{font-size:7px;opacity:0.45;text-align:center;margin-top:2px}
+  .wf{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:14px 0 6px;gap:1px}
+  .wf>div{border-radius:2px}
+  .wf-a{background:rgba(255,255,255,0.2)}.wf-b{background:rgba(255,255,255,0.35)}.wf-c{background:rgba(255,255,255,0.7)}
+  .wf-lbl{display:flex;justify-content:space-between;font-size:9px;opacity:0.6}
+
+  /* Week projection badge */
+  .hero-proj{
+    display:inline-block;margin-top:8px;padding:4px 10px;border-radius:8px;
+    background:rgba(0,0,0,0.15);font-size:11px;font-weight:600;backdrop-filter:blur(4px);
+  }
+
+  /* Explain card */
+  .explain{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;box-shadow:var(--sh);font-size:12px;line-height:1.6;color:var(--tx2)}
+  .explain-title{font-size:11px;font-weight:700;color:var(--tx);margin-bottom:6px}
+  .explain-row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--bs)}
+  .explain-row:last-child{border-bottom:none}
+  .explain-row .l{color:var(--tx3)}.explain-row .v{font-weight:600;font-variant-numeric:tabular-nums}
+  .explain-row.tot{border-top:2px solid var(--tx);border-bottom:none;padding-top:6px;margin-top:4px}
+  .explain-row.tot .l{font-weight:700;color:var(--tx)}.explain-row.tot .v{font-weight:800;font-size:14px}
+  .explain-callout{background:#fef2f2;border-radius:8px;padding:8px 10px;margin-top:8px;font-size:11px;color:#991b1b;line-height:1.5}
+
+  /* Metrics */
+  .mrow{display:flex;gap:10px;margin-bottom:12px}
+  .mcard{flex:1;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px;box-shadow:var(--sh)}
+  .mcard-lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--tx4);font-weight:600;margin-bottom:6px}
+  .mcard-val{font-size:26px;font-weight:800;letter-spacing:-0.5px;text-align:center}
+  .mcard-sub{font-size:10px;color:var(--tx3);text-align:center;margin-top:2px}
+
+  /* Savings history — horizontal bar layout (clean, not crowded) */
+  .sav-rows{margin-top:6px}
+  .sav-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  .sav-mo{font-size:10px;color:var(--tx4);width:24px;text-align:right;font-weight:500;flex-shrink:0}
+  .sav-mo.now{color:var(--tx);font-weight:700}
+  .sav-track{flex:1;height:8px;background:var(--trk);border-radius:4px;overflow:visible;position:relative}
+  .sav-fill{height:100%;border-radius:4px;min-width:2px}
+  .sav-fill.hit{background:var(--grn)}
+  .sav-fill.miss{background:var(--red);opacity:0.6}
+  .sav-fill.cur{background:var(--amb)}
+  .sav-amt{font-size:10px;color:var(--tx3);font-weight:600;width:32px;font-variant-numeric:tabular-nums}
+  .sav-amt.now{color:var(--tx)}
+  /* Target line */
+  .sav-target-line{position:absolute;top:-2px;height:12px;width:1.5px;background:var(--tx);opacity:0.2;border-radius:1px}
+
+  /* Insight */
+  .insight{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--pur);border-radius:2px var(--rs) var(--rs) 2px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--sh)}
+  .insight-h{font-size:11px;font-weight:700;color:var(--pur);margin-bottom:4px}
+  .insight-b{font-size:13px;line-height:1.55;color:var(--tx2)}
+
+  /* Flex spending */
+  .fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px;box-shadow:var(--sh);overflow:hidden}
+  .fhdr{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 10px;border-bottom:1px solid var(--bs)}
+  .ftitle{font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--tx4);font-weight:700}
+  .ftotal{font-size:18px;font-weight:800;letter-spacing:-0.3px}
+  .cat{padding:12px 16px;border-bottom:1px solid var(--bs);transition:background 0.15s}
+  .cat:hover{background:#fafbfc}
+  .cat-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .cat-l{display:flex;align-items:center;gap:8px}
+  .cat-nm{font-size:13px;font-weight:600}
+  .bdg{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px}
+  .br{background:var(--reds);color:#dc2626}.ba{background:var(--ambs);color:#b45309}.bg{background:var(--grns);color:#059669}.bb{background:var(--blus);color:#4f46e5}
+  .cat-r{display:flex;align-items:center;gap:10px}
+  .cat-${font-size:15px;font-weight:700}.cat-$.ov{color:var(--red)}
+  .dbtn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--tx3);font-size:11px;cursor:pointer;flex-shrink:0;transition:all 0.15s}
+  .dbtn:hover{background:var(--blus);color:var(--blu);border-color:#c7d2fe}
+  .bars{display:flex;flex-direction:column;gap:2px}
+  .br-row{display:flex;align-items:center;gap:6px;height:15px}
+  .br-l{font-size:9px;color:var(--tx4);width:22px;text-align:right;flex-shrink:0;font-weight:500}
+  .br-l.now{color:var(--tx2);font-weight:700}
+  .br-trk{flex:1;height:3px;background:var(--trk);border-radius:2px;position:relative}
+  .br-f{height:100%;border-radius:2px;min-width:1px}.br-f.past{opacity:0.55}
+  .br-n{font-size:9px;color:var(--tx4);white-space:nowrap;min-width:58px;text-align:right;font-variant-numeric:tabular-nums}
+  .now-dot{display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--blu);margin-right:2px;vertical-align:middle}
+  .br-row.mo{margin-top:3px;height:18px}
+  .br-row.mo .br-l{font-weight:700;color:var(--tx3)}
+  .br-row.mo .br-trk{height:5px;border-radius:3px}
+  .br-row.mo .br-f{height:5px;border-radius:3px}
+  .br-row.mo .br-n{font-weight:600;color:var(--tx3)}
+  .pace{position:absolute;top:-3px;width:1.5px;height:11px;background:var(--tx);border-radius:1px;opacity:0.3}
+  .show-more{padding:10px 16px;text-align:center;font-size:12px;font-weight:500;color:var(--tx3);cursor:pointer;border-top:1px solid var(--bs)}
+  .show-more:hover{background:var(--surface);color:var(--blu)}
+
+  /* Popover */
+  .pop{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin:0 16px 12px;box-shadow:0 8px 24px rgba(0,0,0,0.08);position:relative}
+  .pop::before{content:'';position:absolute;top:-6px;right:28px;width:12px;height:12px;background:var(--card);border-left:1px solid var(--border);border-top:1px solid var(--border);transform:rotate(45deg)}
+  .pop-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .pop-name{font-weight:700;font-size:14px}.pop-meta{font-size:11px;color:var(--tx4)}
+  .pop-amt{font-size:22px;font-weight:800}
+  .pop-bar{height:5px;background:var(--trk);border-radius:3px;overflow:hidden;margin-bottom:14px}
+  .pop-bar>div{height:100%;border-radius:3px}
+  .pop-section{margin-bottom:14px}
+  .pop-slbl{font-size:9px;text-transform:uppercase;letter-spacing:0.8px;color:var(--tx4);font-weight:600;margin-bottom:6px}
+  .pop-mr{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bs);font-size:12px}
+  .pop-mr:last-child{border-bottom:none}
+  .pop-mn{color:var(--tx2)}.pop-ma{font-weight:600;font-variant-numeric:tabular-nums}
+  .mini-chart{display:flex;align-items:flex-end;gap:2px;height:50px;padding:0 2px;margin-bottom:6px}
+  .mc-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .mc-bar{width:100%;border-radius:3px 3px 0 0;min-height:2px}
+  .mc-bar.actual{background:var(--blu);opacity:0.7}
+  .mc-bar.forecast{border:1px dashed var(--pur);background:none;opacity:0.5}
+  .mc-lbl{font-size:7px;color:var(--tx4)}
+  .pop-forecast{background:var(--surface);border-radius:8px;padding:10px 12px;font-size:11px;line-height:1.6;color:var(--tx2)}
+  .pop-fc-val{color:var(--pur);font-weight:700;font-size:13px}
+  .pop-fc-dir{display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:600}
+  .pop-fc-down{background:var(--grns);color:#059669}
+
+  /* Budget Math */
+  .bmath{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;box-shadow:var(--sh);overflow:hidden}
+  .bmath-hdr{padding:12px 16px;font-size:13px;font-weight:600;color:var(--tx2);cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--bs)}
+  .bmath-body{padding:16px}
+  .bmath-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .bmath-col h4{font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:8px}
+  .bmath-row{display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--bs)}
+  .bmath-row:last-child{border-bottom:none}
+  .bmath-row .l{color:var(--tx3)}.bmath-row .v{font-weight:600;font-variant-numeric:tabular-nums}
+  .bmath-row.tot{border-top:2px solid var(--tx);border-bottom:none;padding-top:6px;margin-top:2px}
+  .bmath-row.tot .l{font-weight:700;color:var(--tx)}.bmath-row.tot .v{font-weight:800}
+  .bmath-row.hl{background:#f0fdf4;margin:2px -8px;padding:4px 8px;border-radius:6px}
+  .bmath-row.hl-r{background:#fef2f2;margin:2px -8px;padding:4px 8px;border-radius:6px}
+  .bmath-divider{height:1px;background:var(--border);margin:12px 0}
+  .bmath-summary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
+  .bmath-stat{text-align:center;padding:10px 8px;border-radius:var(--rs);background:var(--surface)}
+  .bmath-stat-lbl{font-size:9px;text-transform:uppercase;letter-spacing:0.8px;color:var(--tx4);font-weight:600}
+  .bmath-stat-val{font-size:18px;font-weight:800;margin-top:2px}
+
+  /* Chat */
+  .chat{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--sh);margin-bottom:12px}
+  .chat-h{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .chat-t{font-size:13px;font-weight:700;color:var(--tx2)}
+  .qg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+  .qb{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--card);cursor:pointer;text-align:center;color:var(--tx2);transition:all 0.15s}
+  .qb:hover{background:var(--blus);color:var(--blu)}
+  .mtr{display:flex;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;overflow:hidden;width:fit-content}
+  .mt{padding:5px 16px;font-size:11px;font-weight:600;border:none;cursor:pointer;background:var(--card);color:var(--tx4)}
+  .mt.on{background:var(--tx);color:#fff}
+  .ci{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--rs);font-size:13px;background:var(--surface);color:var(--tx4)}
+  .refresh{display:block;width:100%;padding:9px;border:1px solid var(--border);border-radius:var(--rs);background:var(--card);font-size:12px;color:var(--tx3);cursor:pointer;text-align:center;margin-bottom:14px;box-shadow:var(--sh)}
+  .note{background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;font-size:9px;color:#854d0e;margin-bottom:8px;line-height:1.4}
+  .note code{background:#fef9c3;padding:0 3px;border-radius:2px;font-size:9px}
+</style>
+</head>
+<body>
+
+<!-- MONTH NAV -->
+<div class="mnav">
+  <h2>March 2026</h2>
+  <select class="msel"><option>March 2026</option></select>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- HERO — weekly-updated projection -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="hero hero-warn">
+  <div class="hero-top">
+    <div>
+      <div class="hero-lbl">Monthly Savings</div>
+      <div class="hero-amt">$762</div>
+      <div class="hero-sub">
+        Goal $1,500 &middot; <strong>$738 short</strong><br>
+        Flex spending ran $738 over budget
+      </div>
+      <div class="hero-proj">
+        &#x1F4C5; As of W4 &middot; 7 days left &middot; projected end: <strong>~$700</strong>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:8px;opacity:0.45;letter-spacing:0.5px;margin-bottom:4px;">6 MO</div>
+      <div class="sparkline">
+        <div><div class="sp-b h" style="height:28px;"></div><div class="sp-n">O</div></div>
+        <div><div class="sp-b h" style="height:32px;"></div><div class="sp-n">N</div></div>
+        <div><div class="sp-b" style="height:14px;"></div><div class="sp-n">D</div></div>
+        <div><div class="sp-b h" style="height:30px;"></div><div class="sp-n">J</div></div>
+        <div><div class="sp-b h" style="height:27px;"></div><div class="sp-n">F</div></div>
+        <div><div class="sp-b" style="height:18px;"></div><div class="sp-n">M</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="wf">
+    <div class="wf-a" style="flex:68;"></div>
+    <div class="wf-b" style="flex:8;"></div>
+    <div class="wf-c" style="flex:27;"></div>
+  </div>
+  <div class="wf-lbl">
+    <span>Fixed $12.7k</span>
+    <span>Target $1.5k</span>
+    <span>Flex $5.0k (+$738 over)</span>
+  </div>
+</div>
+
+<div class="note">
+  <strong>Weekly update:</strong> The hero recalculates every time you open the page. "$762" is the live savings (income &minus; fixed &minus; flex spent so far). The projection badge shows where you'll land if current week's pace continues.
+</div>
+
+<!-- HOW WE GOT HERE -->
+<div class="explain">
+  <div class="explain-title">How you got to $762 saved</div>
+  <div class="explain-row"><span class="l">Income</span><span class="v">$18,363</span></div>
+  <div class="explain-row"><span class="l">Fixed bills</span><span class="v" style="color:var(--red);">&minus;$12,651</span></div>
+  <div class="explain-row"><span class="l">Flex spending</span><span class="v" style="color:var(--red);">&minus;$4,950</span></div>
+  <div class="explain-row tot"><span class="l">= Savings</span><span class="v" style="color:var(--amb);">$762</span></div>
+  <div class="explain-callout">
+    Flex budget was <strong>$4,212</strong> (income &minus; fixed &minus; $1,500 goal).
+    You spent <strong>$4,950</strong> &mdash; <strong>$738 over</strong>, eating into savings.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SAFE TO SPEND + SAVINGS HISTORY (horizontal bars — clean) -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="mrow">
+  <div class="mcard" style="border-color:#fecaca;">
+    <div class="mcard-lbl">Safe to Spend</div>
+    <div class="mcard-val" style="color:var(--red);">$0</div>
+    <div class="mcard-sub" style="color:var(--red);">$738 over flex budget</div>
+  </div>
+
+  <div class="mcard">
+    <div class="mcard-lbl">Savings History</div>
+    <div class="sav-rows">
+      <!-- Each row: month label | horizontal bar | amount -->
+      <div class="sav-row">
+        <span class="sav-mo">Oct</span>
+        <div class="sav-track">
+          <div class="sav-fill hit" style="width:100%;"></div>
+          <div class="sav-target-line" style="left:83%;"></div>
+        </div>
+        <span class="sav-amt">$1.8k</span>
+      </div>
+      <div class="sav-row">
+        <span class="sav-mo">Nov</span>
+        <div class="sav-track">
+          <div class="sav-fill hit" style="width:100%;"></div>
+          <div class="sav-target-line" style="left:83%;"></div>
+        </div>
+        <span class="sav-amt">$2.1k</span>
+      </div>
+      <div class="sav-row">
+        <span class="sav-mo">Dec</span>
+        <div class="sav-track">
+          <div class="sav-fill miss" style="width:44%;"></div>
+          <div class="sav-target-line" style="left:83%;"></div>
+        </div>
+        <span class="sav-amt">$0.8k</span>
+      </div>
+      <div class="sav-row">
+        <span class="sav-mo">Jan</span>
+        <div class="sav-track">
+          <div class="sav-fill hit" style="width:100%;"></div>
+          <div class="sav-target-line" style="left:83%;"></div>
+        </div>
+        <span class="sav-amt">$1.9k</span>
+      </div>
+      <div class="sav-row">
+        <span class="sav-mo">Feb</span>
+        <div class="sav-track">
+          <div class="sav-fill hit" style="width:89%;"></div>
+          <div class="sav-target-line" style="left:83%;"></div>
+        </div>
+        <span class="sav-amt">$1.6k</span>
+      </div>
+      <div class="sav-row">
+        <span class="sav-mo now">Mar</span>
+        <div class="sav-track">
+          <div class="sav-fill cur" style="width:42%;"></div>
+          <div class="sav-target-line" style="left:83%;"></div>
+        </div>
+        <span class="sav-amt now">$762</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;font-size:9px;color:var(--tx4);margin-top:6px;justify-content:center;">
+      <span><span style="color:var(--grn);">&#9632;</span> hit</span>
+      <span><span style="color:var(--red);">&#9632;</span> miss</span>
+      <span><span style="color:var(--amb);">&#9632;</span> now</span>
+      <span><span style="opacity:0.3;">|</span> $1.5k goal</span>
+    </div>
+  </div>
+</div>
+
+<!-- AI INSIGHT -->
+<div class="insight">
+  <div class="insight-h">&#9733; AI Insight</div>
+  <div class="insight-b">
+    You're <strong>$738 over</strong> your flex budget. <strong>Cash & ATM</strong> drove most of it &mdash; $2,500 vs your typical $400. Groceries and restaurants came in way under, saving you ~$845.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLEX SPENDING -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="fcard">
+  <div class="fhdr">
+    <span class="ftitle">Flex Spending</span>
+    <span class="ftotal">$4,950</span>
+  </div>
+
+  <!-- Cash & ATM -->
+  <div class="cat">
+    <div class="cat-top">
+      <div class="cat-l"><span class="cat-nm">Cash & ATM</span><span class="bdg ba">elevated</span></div>
+      <div class="cat-r"><span class="cat-$">$2,500</span><button class="dbtn">&#x25B6;</button></div>
+    </div>
+    <div class="bars">
+      <div class="br-row"><span class="br-l">W1</span><div class="br-trk"><div class="br-f past" style="width:100%;background:var(--red);"></div></div><span class="br-n">$2,500/$460</span></div>
+      <div class="br-row"><span class="br-l">W2</span><div class="br-trk"><div class="br-f past" style="width:0%;"></div></div><span class="br-n">$0/$460</span></div>
+      <div class="br-row"><span class="br-l">W3</span><div class="br-trk"><div class="br-f past" style="width:0%;"></div></div><span class="br-n">$0/$460</span></div>
+      <div class="br-row"><span class="br-l now"><span class="now-dot"></span>W4</span><div class="br-trk"><div class="br-f" style="width:0%;"></div></div><span class="br-n">$0/$460</span></div>
+      <div class="br-row" style="opacity:0.3;"><span class="br-l">W5</span><div class="br-trk"><div class="br-f" style="width:0%;"></div></div><span class="br-n">&mdash;</span></div>
+      <div class="br-row mo"><span class="br-l">Mo</span><div class="br-trk"><div class="br-f" style="width:100%;background:var(--red);"></div><div class="pace" style="left:67%;"></div></div><span class="br-n">$2,500/$2,300</span></div>
+    </div>
+  </div>
+
+  <!-- POPOVER DEMO -->
+  <div style="padding:0 12px 12px;">
+    <div class="note" style="margin:0 0 4px;">Opens via <code>st.popover("&#x25B6;")</code></div>
+    <div class="pop">
+      <div class="pop-top">
+        <div><div class="pop-name">Cash & ATM</div><div class="pop-meta">2 transactions &middot; $2,500 this month</div></div>
+        <div class="pop-amt" style="color:var(--red);">$2,500</div>
+      </div>
+      <div class="pop-bar"><div style="width:100%;background:var(--blu);"></div></div>
+      <div class="pop-section">
+        <div class="pop-slbl">Monthly Trend</div>
+        <div style="position:relative;">
+          <div class="mini-chart">
+            <div class="mc-col"><div class="mc-bar actual" style="height:80%;"></div><div class="mc-lbl">Jul</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:70%;"></div><div class="mc-lbl">Aug</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:20%;"></div><div class="mc-lbl">Sep</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:5%;"></div><div class="mc-lbl">Oct</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:15%;"></div><div class="mc-lbl">Nov</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:40%;"></div><div class="mc-lbl">Dec</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:50%;"></div><div class="mc-lbl">Jan</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:55%;"></div><div class="mc-lbl">Feb</div></div>
+            <div class="mc-col"><div class="mc-bar actual" style="height:55%;background:var(--amb);opacity:1;"></div><div class="mc-lbl" style="font-weight:700;">Mar</div></div>
+            <div class="mc-col"><div class="mc-bar forecast" style="height:48%;"></div><div class="mc-lbl" style="color:var(--pur);">Apr</div></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:22px;border-top:1px dashed var(--tx4);opacity:0.2;"></div>
+          <div style="position:absolute;right:0;bottom:24px;font-size:7px;color:var(--tx4);">avg $2,300</div>
+        </div>
+      </div>
+      <div class="pop-section">
+        <div class="pop-slbl">Top Merchants</div>
+        <div class="pop-mr"><span class="pop-mn">Withdrawal</span><span class="pop-ma">$1,500</span></div>
+        <div class="pop-mr"><span class="pop-mn">ATM Withdrawal</span><span class="pop-ma">$1,000</span></div>
+      </div>
+      <div class="pop-forecast">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-weight:700;color:var(--tx);">Next Month Forecast</span>
+          <span class="pop-fc-dir pop-fc-down">&#x2193; 12%</span>
+        </div>
+        <div style="margin-bottom:6px;">
+          <span class="pop-fc-val">$2,200</span>
+          <span style="font-size:10px;color:var(--tx4);"> predicted &middot; range $1,800&ndash;$2,600</span>
+        </div>
+        <div style="font-size:11px;color:var(--tx3);line-height:1.5;">
+          Based on 9 months of data, Prophet expects a <strong>slight decrease</strong>.
+          This category is volatile (std $800) &mdash; swings are normal.
+          March was within historical range despite feeling high.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Miscellaneous -->
+  <div class="cat">
+    <div class="cat-top">
+      <div class="cat-l"><span class="cat-nm">Miscellaneous</span><span class="bdg br">way over</span></div>
+      <div class="cat-r"><span class="cat-$ ov">$789</span><button class="dbtn">&#x25B6;</button></div>
+    </div>
+    <div class="bars">
+      <div class="br-row"><span class="br-l">W1</span><div class="br-trk"><div class="br-f past" style="width:100%;background:var(--red);"></div></div><span class="br-n">$771/$79</span></div>
+      <div class="br-row"><span class="br-l">W2</span><div class="br-trk"><div class="br-f past" style="width:0%;"></div></div><span class="br-n">$0/$79</span></div>
+      <div class="br-row"><span class="br-l">W3</span><div class="br-trk"><div class="br-f past" style="width:23%;background:var(--amb);"></div></div><span class="br-n">$18/$79</span></div>
+      <div class="br-row"><span class="br-l now"><span class="now-dot"></span>W4</span><div class="br-trk"><div class="br-f" style="width:0%;"></div></div><span class="br-n">$0/$79</span></div>
+      <div class="br-row" style="opacity:0.3;"><span class="br-l">W5</span><div class="br-trk"><div class="br-f" style="width:0%;"></div></div><span class="br-n">&mdash;</span></div>
+      <div class="br-row mo"><span class="br-l">Mo</span><div class="br-trk"><div class="br-f" style="width:100%;background:var(--red);"></div><div class="pace" style="left:67%;"></div></div><span class="br-n">$789/$397</span></div>
+    </div>
+  </div>
+
+  <!-- Shopping -->
+  <div class="cat">
+    <div class="cat-top">
+      <div class="cat-l"><span class="cat-nm">Shopping</span><span class="bdg bg">under pace</span></div>
+      <div class="cat-r"><span class="cat-$">$296</span><button class="dbtn">&#x25B6;</button></div>
+    </div>
+    <div class="bars">
+      <div class="br-row"><span class="br-l">W1</span><div class="br-trk"><div class="br-f past" style="width:1%;background:var(--grn);"></div></div><span class="br-n">$1/$110</span></div>
+      <div class="br-row"><span class="br-l">W2</span><div class="br-trk"><div class="br-f past" style="width:31%;background:var(--grn);"></div></div><span class="br-n">$34/$110</span></div>
+      <div class="br-row"><span class="br-l">W3</span><div class="br-trk"><div class="br-f past" style="width:95%;background:var(--blu);"></div></div><span class="br-n">$104/$110</span></div>
+      <div class="br-row"><span class="br-l now"><span class="now-dot"></span>W4</span><div class="br-trk"><div class="br-f" style="width:100%;background:var(--red);"></div></div><span class="br-n">$157/$110</span></div>
+      <div class="br-row" style="opacity:0.3;"><span class="br-l">W5</span><div class="br-trk"><div class="br-f" style="width:0%;"></div></div><span class="br-n">&mdash;</span></div>
+      <div class="br-row mo"><span class="br-l">Mo</span><div class="br-trk"><div class="br-f" style="width:54%;background:var(--grn);"></div><div class="pace" style="left:67%;"></div></div><span class="br-n">$296/$552</span></div>
+    </div>
+  </div>
+
+  <!-- Entertainment -->
+  <div class="cat">
+    <div class="cat-top">
+      <div class="cat-l"><span class="cat-nm">Entertainment & Travel</span><span class="bdg br">way over</span></div>
+      <div class="cat-r"><span class="cat-$ ov">$219</span><button class="dbtn">&#x25B6;</button></div>
+    </div>
+    <div class="bars">
+      <div class="br-row"><span class="br-l">W1</span><div class="br-trk"><div class="br-f past" style="width:93%;background:var(--blu);"></div></div><span class="br-n">$28/$30</span></div>
+      <div class="br-row"><span class="br-l">W2</span><div class="br-trk"><div class="br-f past" style="width:93%;background:var(--blu);"></div></div><span class="br-n">$28/$30</span></div>
+      <div class="br-row"><span class="br-l">W3</span><div class="br-trk"><div class="br-f past" style="width:100%;background:var(--red);"></div></div><span class="br-n">$125/$30</span></div>
+      <div class="br-row"><span class="br-l now"><span class="now-dot"></span>W4</span><div class="br-trk"><div class="br-f" style="width:100%;background:var(--red);"></div></div><span class="br-n">$39/$30</span></div>
+      <div class="br-row" style="opacity:0.3;"><span class="br-l">W5</span><div class="br-trk"><div class="br-f" style="width:0%;"></div></div><span class="br-n">&mdash;</span></div>
+      <div class="br-row mo"><span class="br-l">Mo</span><div class="br-trk"><div class="br-f" style="width:100%;background:var(--red);"></div><div class="pace" style="left:67%;"></div></div><span class="br-n">$219/$148</span></div>
+    </div>
+  </div>
+
+  <div class="show-more">&#x25BC; Show 9 more categories ($857)</div>
+</div>
+
+<!-- BUDGET MATH EXPANDED -->
+<div class="bmath">
+  <div class="bmath-hdr"><span style="font-size:9px;color:var(--tx4);">&#x25BC;</span> &#x1F4CA; Budget Math</div>
+  <div class="bmath-body">
+    <div class="bmath-grid">
+      <div class="bmath-col">
+        <h4>&#x1F4B5; Money In</h4>
+        <div class="bmath-row"><span class="l">Kero (Premera)</span><span class="v">$10,617</span></div>
+        <div class="bmath-row"><span class="l">Maggie (Boeing)</span><span class="v">$7,746</span></div>
+        <div class="bmath-row tot"><span class="l">Total Income</span><span class="v">$18,363</span></div>
+      </div>
+      <div class="bmath-col">
+        <h4>&#x1F9EE; The Math</h4>
+        <div class="bmath-row"><span class="l">Income</span><span class="v">$18,363</span></div>
+        <div class="bmath-row"><span class="l">&minus; Fixed bills</span><span class="v" style="color:var(--red);">&minus;$12,651</span></div>
+        <div class="bmath-row"><span class="l">&minus; Savings target</span><span class="v" style="color:var(--pur);">&minus;$1,500</span></div>
+        <div class="bmath-row hl"><span class="l">= Flex budget</span><span class="v" style="color:var(--grn);font-weight:800;">$4,212</span></div>
+        <div class="bmath-row"><span class="l">&minus; Flex spent</span><span class="v" style="color:var(--red);">&minus;$4,950</span></div>
+        <div class="bmath-row hl-r"><span class="l">= Over by</span><span class="v" style="color:var(--red);font-weight:800;">&minus;$738</span></div>
+      </div>
+    </div>
+    <div class="bmath-divider"></div>
+    <h4 style="font-size:12px;font-weight:700;color:var(--tx2);margin-bottom:8px;">&#x1F3E0; Fixed Monthly Bills</h4>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px;">
+      <div class="bmath-row"><span class="l">Mortgage</span><span class="v">$7,100</span></div>
+      <div class="bmath-row"><span class="l">Education</span><span class="v">$2,100</span></div>
+      <div class="bmath-row"><span class="l">Insurance</span><span class="v">$552</span></div>
+      <div class="bmath-row"><span class="l">Student Loans</span><span class="v">$518</span></div>
+      <div class="bmath-row"><span class="l">Charity</span><span class="v">$500</span></div>
+      <div class="bmath-row"><span class="l">Gas & Electric</span><span class="v">$308</span></div>
+      <div class="bmath-row"><span class="l">Garbage</span><span class="v">$223</span></div>
+      <div class="bmath-row"><span class="l">Phone</span><span class="v">$144</span></div>
+      <div class="bmath-row"><span class="l">Water</span><span class="v">$112</span></div>
+      <div class="bmath-row"><span class="l">Internet</span><span class="v">$67</span></div>
+    </div>
+    <div class="bmath-row tot" style="max-width:200px;"><span class="l">Total Fixed</span><span class="v">$12,651</span></div>
+    <div class="bmath-summary">
+      <div class="bmath-stat"><div class="bmath-stat-lbl">Saved</div><div class="bmath-stat-val" style="color:var(--amb);">$762</div></div>
+      <div class="bmath-stat"><div class="bmath-stat-lbl">Target</div><div class="bmath-stat-val">$1,500</div></div>
+      <div class="bmath-stat" style="background:#fef2f2;"><div class="bmath-stat-lbl">Gap</div><div class="bmath-stat-val" style="color:var(--red);">&minus;$738</div></div>
+    </div>
+  </div>
+</div>
+
+<button class="refresh">Refresh Analytics</button>
+
+<!-- CHAT -->
+<div class="chat">
+  <div class="chat-h"><span style="font-size:15px;">&#x1F4AC;</span><span class="chat-t">Ask Anything</span></div>
+  <div class="qg">
+    <div class="qb">Am I on track?</div>
+    <div class="qb">Can I spend $200?</div>
+    <div class="qb">Cut $100 where?</div>
+    <div class="qb">vs Last Month</div>
+  </div>
+  <div class="mtr"><button class="mt on">This Month</button><button class="mt">Historical</button></div>
+  <input class="ci" placeholder="Ask about this month..." readonly>
+</div>
+
+</body>
+</html>

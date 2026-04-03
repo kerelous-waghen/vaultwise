@@ -77,7 +77,7 @@ def monarch_auto_sync():
                 result = monarch_sync.sync_transactions(conn)
                 if result["new"] > 0:
                     st.toast(f"Monarch: {result['new']} new transactions synced")
-                if result["errors"]:
+                if result["errors"] and "not configured" not in result["errors"][0].lower():
                     st.session_state.monarch_sync_error = result["errors"][0]
             except Exception as e:
                 st.session_state.monarch_sync_error = str(e)[:120]
