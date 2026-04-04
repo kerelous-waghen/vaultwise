@@ -727,7 +727,7 @@ def home_page():
                 # Expander inside the same container
                 if not show_popover:
                     continue
-                with st.expander("Forecast & Details", icon="🔮"):
+                with st.expander("🔮 Forecast & Details"):
                     _t = trend_results.get(cat["name"], DEFAULT_TREND_DICT)
                     _t_mean = float(_t.get("mean", 0))
                     _t_direction = _t.get("direction", "stable")
