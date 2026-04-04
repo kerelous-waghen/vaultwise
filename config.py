@@ -20,27 +20,31 @@ _private_path = os.path.join(_config_dir, "config_private.py")
 if not os.path.exists(_private_path):
     # On Streamlit Cloud: parse config_private from secrets entirely in-memory
     # (never write to disk — avoids exposing PII as a plaintext file in /tmp)
+    import types as _types, sys as _sys  # noqa: E401
+    _content = ""
     try:
         import streamlit as st
         _content = st.secrets.get("config_private_py", "")
-        if _content:
-            import types, sys  # noqa: E401
-            _mod = types.ModuleType("config_private")
+    except Exception:
+        pass  # No secrets file at all — fall through to defaults
+
+    if _content:
+        try:
+            _mod = _types.ModuleType("config_private")
             _mod.__file__ = "<config_private_from_secrets>"
             exec(compile(_content, "<config_private>", "exec"), _mod.__dict__)  # noqa: S102
-            sys.modules["config_private"] = _mod
-        else:
-            # No secret found — create minimal module with defaults
-            import types, sys  # noqa: E401
-            _mod = types.ModuleType("config_private")
-            _mod.__file__ = "<config_private_defaults>"
-            _mod.INCOME = {"combined_monthly_take_home": 0}
-            _mod.FIXED_MONTHLY_EXPENSES = {}
-            _mod.MONTHLY_EXPENSES = 0
-            _mod.CC_MONTHLY_AVERAGE = 0
-            sys.modules["config_private"] = _mod
-    except Exception as e:
-        raise RuntimeError(f"Cannot load config_private: {e}")
+            _sys.modules["config_private"] = _mod
+        except Exception as e:
+            raise RuntimeError(f"Cannot load config_private: {e}")
+    else:
+        # No secret found — create minimal module with defaults
+        _mod = _types.ModuleType("config_private")
+        _mod.__file__ = "<config_private_defaults>"
+        _mod.INCOME = {"combined_monthly_take_home": 0}
+        _mod.FIXED_MONTHLY_EXPENSES = {}
+        _mod.MONTHLY_EXPENSES = 0
+        _mod.CC_MONTHLY_AVERAGE = 0
+        _sys.modules["config_private"] = _mod
 
 from config_private import *  # noqa: F401, F403
 
