@@ -498,3 +498,112 @@ def render_year_projection(projected_savings, daycare_amount=0):
         )
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Plan page V2 components ────────────────────────────────────────
+
+def render_plan_hero_v2(monthly_income, effective_fixed, savings_target,
+                        flex_budget, projected_savings, month_label):
+    """Render the dark gradient hero card with income waterfall + projected savings."""
+    _sav_color = "#34d399" if projected_savings >= savings_target else "#fbbf24"
+    _year = projected_savings * 12
+    # Flex proportions for waterfall segments
+    _total = monthly_income if monthly_income > 0 else 1
+    html = (
+        f'<div class="vw-plan-hero-v2">'
+        f'<div class="ph-title">Savings Plan</div>'
+        f'<div class="ph-month">{month_label}</div>'
+        # Waterfall
+        f'<div class="vw-plan-waterfall">'
+        f'<div class="wf-seg" style="flex:{monthly_income / _total * 3.5:.1f};">'
+        f'<div class="wf-label">Income</div>'
+        f'<div class="wf-amount">${monthly_income:,.0f}</div>'
+        f'<div class="wf-bar" style="background:rgba(255,255,255,0.3);"></div></div>'
+        f'<div class="wf-arrow">→</div>'
+        f'<div class="wf-seg" style="flex:{effective_fixed / _total * 3.5:.1f};">'
+        f'<div class="wf-label">Fixed</div>'
+        f'<div class="wf-amount">${effective_fixed:,.0f}</div>'
+        f'<div class="wf-bar" style="background:#6b7280;"></div></div>'
+        f'<div class="wf-arrow">→</div>'
+        f'<div class="wf-seg" style="flex:{max(savings_target / _total * 3.5, 0.5):.1f};">'
+        f'<div class="wf-label">Save</div>'
+        f'<div class="wf-amount">${savings_target:,.0f}</div>'
+        f'<div class="wf-bar" style="background:#a78bfa;"></div></div>'
+        f'<div class="wf-arrow">→</div>'
+        f'<div class="wf-seg" style="flex:{max(flex_budget / _total * 3.5, 0.5):.1f};">'
+        f'<div class="wf-label">Flex</div>'
+        f'<div class="wf-amount">${flex_budget:,.0f}</div>'
+        f'<div class="wf-bar" style="background:#34d399;"></div></div>'
+        f'</div>'
+        # Projected savings
+        f'<div class="ph-savings">'
+        f'<div class="ph-savings-label">Projected Monthly Savings</div>'
+        f'<div class="ph-savings-amount" style="color:{_sav_color};">${projected_savings:,.0f}</div>'
+        f'<div class="ph-savings-sub">Target: ${savings_target:,}/mo &middot; &asymp; ${_year:,.0f}/year</div>'
+        f'</div>'
+        f'</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_plan_year_pills(projected_savings, daycare_amount=0):
+    """Render projection pills (Annual Savings + Post-Daycare)."""
+    annual = projected_savings * 12
+    _ann_color = "#22c55e" if annual >= 0 else "#ef4444"
+    _ann_bg = "#f0fdf4" if annual >= 0 else "#fef2f2"
+    html = (
+        f'<div class="vw-plan-proj-row">'
+        f'<div class="vw-plan-proj-pill" style="background:{_ann_bg};">'
+        f'<div class="pp-label">Annual Savings</div>'
+        f'<div class="pp-value" style="color:{_ann_color};">${annual:,.0f}</div></div>'
+    )
+    if daycare_amount > 0:
+        post_daycare = (projected_savings + daycare_amount) * 12
+        html += (
+            f'<div class="vw-plan-proj-pill" style="background:#eff6ff;">'
+            f'<div class="pp-label">Post-Daycare</div>'
+            f'<div class="pp-value" style="color:#2563eb;">${post_daycare:,.0f}'
+            f'<span style="font-size:12px;font-weight:500;">/yr</span></div></div>'
+        )
+    else:
+        html += (
+            f'<div class="vw-plan-proj-pill" style="background:#f8f9fb;">'
+            f'<div class="pp-label">5-Year Total</div>'
+            f'<div class="pp-value" style="color:#374151;">${annual * 5:,.0f}</div></div>'
+        )
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_plan_sliders_header(flex_budget):
+    """Render the header inside the sliders container."""
+    st.markdown(
+        f'<div class="vw-plan-slider-header">'
+        f'<div><div class="psh-title">Adjust Spending</div>'
+        f'<div class="psh-sub">Drag sliders to find savings</div></div>'
+        f'<div style="text-align:right;">'
+        f'<div class="psh-budget-label">Flex Budget</div>'
+        f'<div class="psh-budget-value">${flex_budget:,.0f}</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_plan_impact_bar(total_cuts):
+    """Render the teal impact summary bar."""
+    if total_cuts > 0:
+        st.markdown(
+            f'<div class="vw-plan-impact">'
+            f'<span class="pi-label">✂ Total cuts from typical</span>'
+            f'<span class="pi-amount">−${total_cuts:,.0f}/mo</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f'<div class="vw-plan-impact" style="background:#f8f9fb;">'
+            f'<span class="pi-label" style="color:#6b7280;">No cuts — spending at typical levels</span>'
+            f'<span class="pi-amount" style="color:#6b7280;">$0</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )

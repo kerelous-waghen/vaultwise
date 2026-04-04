@@ -98,69 +98,26 @@ def savings_journey_page():
         st.session_state.plan_minimums = json.loads(_mins_raw) if _mins_raw else {}
 
     # ══════════════════════════════════════════════════════════════════
-    # SECTION 1: SAVINGS PLAN (V5)
+    # SECTION 1: HERO + PROJECTIONS (placeholders filled after sliders)
     # ══════════════════════════════════════════════════════════════════
-    st.markdown('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
-        '<div><div style="font-size:18px;font-weight:700;color:var(--vw-text);">Savings Plan</div>'
-        f'<div style="font-size:12px;color:var(--vw-text-muted);">{_today.strftime("%B %Y")}</div></div></div>', unsafe_allow_html=True)
-
-    from shared.components import render_income_allocation_bar, render_plan_hero, render_year_projection
-    render_income_allocation_bar(_effective_fixed, _savings_target, _flex_budget, _monthly_income)
-
-    # Placeholder for plan hero — filled after sliders compute _projected_savings
+    from shared.components import (
+        render_plan_hero_v2, render_plan_year_pills,
+        render_plan_sliders_header, render_plan_impact_bar,
+    )
+    _month_label = _today.strftime("%B %Y")
     _hero_placeholder = st.empty()
     _year_placeholder = st.empty()
 
     # ══════════════════════════════════════════════════════════════════
-    # SECTION 3: FIND YOUR SAVINGS (sliders with visual feedback)
+    # SECTION 2: RECOMMEND + MINIMUMS + SLIDERS
     # ══════════════════════════════════════════════════════════════════
-    st.markdown("### Find Your Savings")
-    st.caption("Drag sliders left to cut spending. "
-               "Watch the savings meter and spending bar update live.")
 
-    # ── Set minimum spending per category ────────────────────────────
+    # ── Recommend a Plan button (above sliders for prominence) ──────
     _cat_mins = st.session_state.plan_minimums
-    with st.expander("Set minimum spending per category"):
-        _mins_changed = False
-        # 2-column layout for compact mobile view
-        for _row_start in range(0, len(_cat_avg_sorted), 2):
-            _row_cats = _cat_avg_sorted[_row_start:_row_start + 2]
-            _cols = st.columns(len(_row_cats))
-            for _col, (cat, avg) in zip(_cols, _row_cats):
-                _min_key = f"min_{cat}"
-                _cur_min = min(_cat_mins.get(cat, 0), avg)  # clamp to current avg
-                # Truncate long names for mobile
-                _short = cat[:18] + "…" if len(cat) > 18 else cat
-                _new_min = _col.number_input(
-                    _short, min_value=0, max_value=avg, value=_cur_min,
-                    step=25, key=_min_key,
-                )
-                if _new_min != _cur_min:
-                    _cat_mins[cat] = _new_min
-                    _mins_changed = True
-        if _mins_changed:
-            st.session_state.plan_minimums = _cat_mins
-            database.set_setting(conn, "category_min_targets",
-                                 json.dumps(_cat_mins))
-            # Enforce: push any slider below its new minimum up
-            for cat, avg in _cat_avg_sorted:
-                _floor = _cat_mins.get(cat, 0)
-                if st.session_state.plan_targets.get(cat, avg) < _floor:
-                    st.session_state.plan_targets[cat] = _floor
-
-    # Realism check: can the target be hit with these minimums?
     _min_total = sum(_cat_mins.get(cat, 0) for cat, _ in _cat_avg_sorted)
     _target_achievable = _min_total <= _flex_budget
-    if not _target_achievable:
-        _shortfall = _min_total - _flex_budget
-        st.warning(
-            f"With your minimum floors (totaling ${_min_total:,}), "
-            f"the ${savings_target:,}/mo savings target is ${_shortfall:,.0f} "
-            f"short. Claude will get as close as possible."
-        )
 
-    # ── Recommend a Plan button ────────────────────────────────────
-    if st.button("Recommend a Plan", icon="✨", use_container_width=True):
+    if st.button("✨ Recommend a Plan", use_container_width=True):
         advisor = get_advisor()
         if advisor:
             # Current month actual spending per category
@@ -312,13 +269,57 @@ def savings_journey_page():
         else:
             st.warning("Set your Anthropic API key in Settings first.")
 
+    # ── Set minimum spending per category ────────────────────────────
+    with st.expander("⚙ Set minimum spending per category"):
+        _mins_changed = False
+        for _row_start in range(0, len(_cat_avg_sorted), 2):
+            _row_cats = _cat_avg_sorted[_row_start:_row_start + 2]
+            _cols = st.columns(len(_row_cats))
+            for _col, (cat, avg) in zip(_cols, _row_cats):
+                _min_key = f"min_{cat}"
+                _cur_min = min(_cat_mins.get(cat, 0), avg)
+                _short = cat[:18] + "…" if len(cat) > 18 else cat
+                _new_min = _col.number_input(
+                    _short, min_value=0, max_value=avg, value=_cur_min,
+                    step=25, key=_min_key,
+                )
+                if _new_min != _cur_min:
+                    _cat_mins[cat] = _new_min
+                    _mins_changed = True
+        if _mins_changed:
+            st.session_state.plan_minimums = _cat_mins
+            database.set_setting(conn, "category_min_targets",
+                                 json.dumps(_cat_mins))
+            for cat, avg in _cat_avg_sorted:
+                _floor = _cat_mins.get(cat, 0)
+                if st.session_state.plan_targets.get(cat, avg) < _floor:
+                    st.session_state.plan_targets[cat] = _floor
+
+    # Realism check
+    _min_total = sum(_cat_mins.get(cat, 0) for cat, _ in _cat_avg_sorted)
+    _target_achievable = _min_total <= _flex_budget
+    if not _target_achievable:
+        _shortfall = _min_total - _flex_budget
+        st.warning(
+            f"With your minimum floors (totaling ${_min_total:,}), "
+            f"the ${savings_target:,}/mo savings target is ${_shortfall:,.0f} "
+            f"short. Claude will get as close as possible."
+        )
+
+    # ── Sliders inside a bordered container ───────────────────────
     _main_cats = _cat_avg_sorted[:5]
     _extra_cats = _cat_avg_sorted[5:]
 
     _total_planned = 0
-    _slider_results = []  # (cat, typical, val, color_idx)
+    _slider_results = []
 
-    for i, (cat, typical) in enumerate(_main_cats):
+    _slider_container = st.container(border=True)
+    with _slider_container:
+        render_plan_sliders_header(_flex_budget)
+
+    # Main 5 category sliders (inside the container)
+    with _slider_container:
+      for i, (cat, typical) in enumerate(_main_cats):
         _key = f"plan_slider_{cat}"
         _floor = _cat_mins.get(cat, 0)
         # Initialize slider key in session state if not already set
@@ -473,11 +474,18 @@ def savings_journey_page():
     _total_cuts = _total_typical - _total_planned
     _projected_savings = _monthly_income - _effective_fixed - _total_planned
 
+    # Impact bar inside the slider container
+    with _slider_container:
+        render_plan_impact_bar(_total_cuts)
+
     # ── Action buttons ──────────────────────────────────────────────
     _btn1, _btn2 = st.columns(2)
     with _btn1:
-        if st.button("Adjust Targets", use_container_width=True):
-            pass  # just visual, sliders are already there
+        if st.button("Reset to Typical", use_container_width=True):
+            for cat, avg in _cat_avg_sorted:
+                st.session_state.plan_targets[cat] = avg
+                st.session_state[f"plan_slider_{cat}"] = avg
+            st.rerun()
     with _btn2:
         if st.button("Accept Plan", type="primary", use_container_width=True):
             database.set_setting(conn, "flex_category_targets", json.dumps(st.session_state.plan_targets))
@@ -487,11 +495,14 @@ def savings_journey_page():
     # FILL PLAN HERO + YEAR PROJECTION placeholders
     # ══════════════════════════════════════════════════════════════════
     with _hero_placeholder.container():
-        render_plan_hero(_projected_savings, _savings_target, year_savings=_projected_savings * 12)
+        render_plan_hero_v2(
+            _monthly_income, _effective_fixed, _savings_target,
+            _flex_budget, _projected_savings, _month_label,
+        )
 
     with _year_placeholder.container():
         _daycare_amt = config.FIXED_MONTHLY_EXPENSES.get("Daycare", 0)
-        render_year_projection(_projected_savings, daycare_amount=_daycare_amt)
+        render_plan_year_pills(_projected_savings, daycare_amount=_daycare_amt)
 
     # ══════════════════════════════════════════════════════════════════
     # SECTION 4: REAL TALK (conditional)

@@ -29,6 +29,16 @@ if not os.path.exists(_private_path):
             _mod.__file__ = "<config_private_from_secrets>"
             exec(compile(_content, "<config_private>", "exec"), _mod.__dict__)  # noqa: S102
             sys.modules["config_private"] = _mod
+        else:
+            # No secret found — create minimal module with defaults
+            import types, sys  # noqa: E401
+            _mod = types.ModuleType("config_private")
+            _mod.__file__ = "<config_private_defaults>"
+            _mod.INCOME = {"combined_monthly_take_home": 0}
+            _mod.FIXED_MONTHLY_EXPENSES = {}
+            _mod.MONTHLY_EXPENSES = 0
+            _mod.CC_MONTHLY_AVERAGE = 0
+            sys.modules["config_private"] = _mod
     except Exception as e:
         raise RuntimeError(f"Cannot load config_private: {e}")
 

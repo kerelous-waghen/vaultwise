@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Savings Plan — Feasible Streamlit Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f7f8fa; color: #111827;
+    padding: 16px; max-width: 430px; margin: 0 auto;
+  }
+  :root {
+    --tx: #111827; --tx2: #374151; --tx3: #6b7280; --tx4: #9ca3af;
+    --border: #ebedf0; --bs: #f3f4f6;
+    --card: #ffffff; --r: 16px; --sh: 0 1px 3px rgba(0,0,0,0.05);
+    --red: #ef4444; --grn: #10b981; --blu: #6366f1;
+  }
+  .note {
+    font-size: 10px; color: #9ca3af; background: #f9fafb;
+    border: 1px dashed #d1d5db; border-radius: 8px;
+    padding: 6px 10px; margin: 6px 0;
+    font-style: italic;
+  }
+
+  /* ═══ HERO (st.markdown — pure HTML/CSS) ═══ */
+  .hero {
+    background: linear-gradient(135deg, #1e1b4b, #312e81);
+    border-radius: 20px; padding: 20px; color: #fff;
+    margin-bottom: 14px; position: relative; overflow: hidden;
+  }
+  .hero::after {
+    content: ''; position: absolute; top: -50%; right: -30%;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: rgba(99,102,241,0.15);
+  }
+  .hero .hero-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; opacity: 0.6; margin-bottom: 4px; }
+  .hero .hero-month { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+
+  /* Waterfall */
+  .waterfall { display: flex; gap: 0; margin-bottom: 14px; position: relative; z-index: 1; }
+  .wf-seg { text-align: center; padding: 8px 4px; }
+  .wf-seg .wf-label { font-size: 9px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.3px; }
+  .wf-seg .wf-amount { font-size: 14px; font-weight: 700; margin-top: 2px; }
+  .wf-seg .wf-bar { height: 4px; border-radius: 2px; margin-top: 6px; }
+  .wf-arrow { display: flex; align-items: center; color: rgba(255,255,255,0.3); font-size: 12px; padding: 0 2px; }
+
+  /* Projected savings */
+  .savings-result { text-align: center; padding: 12px 0; border-top: 1px solid rgba(255,255,255,0.1); position: relative; z-index: 1; }
+  .savings-label { font-size: 10px; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; }
+  .savings-amount { font-size: 32px; font-weight: 800; letter-spacing: -1px; margin: 4px 0; }
+  .savings-sub { font-size: 12px; opacity: 0.7; }
+  .savings-miss { color: #fbbf24; }
+  .savings-hit { color: #34d399; }
+
+  /* ═══ PROJECTION PILLS (st.markdown — pure HTML) ═══ */
+  .proj-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .proj-pill { flex: 1; padding: 12px; border-radius: 14px; text-align: center; box-shadow: var(--sh); }
+  .proj-pill .proj-label { font-size: 10px; color: var(--tx4); text-transform: uppercase; letter-spacing: 0.5px; }
+  .proj-pill .proj-value { font-size: 18px; font-weight: 800; margin-top: 2px; }
+
+  /* ═══ STREAMLIT BUTTON (st.button) ═══ */
+  .st-btn {
+    width: 100%; padding: 10px 16px; border-radius: 8px; font-size: 14px;
+    font-weight: 500; text-align: center; cursor: pointer;
+    min-height: 40px; border: 1px solid #d1d5db; background: #fff; color: var(--tx2);
+    margin-bottom: 12px;
+  }
+  .st-btn-primary {
+    background: #ff4b4b; color: #fff; border: none;
+  }
+
+  /* ═══ SLIDER LABEL (st.markdown above each st.slider) ═══ */
+  .slider-label {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 2px; margin-top: 10px;
+  }
+  .slider-label .sl-left { display: flex; align-items: center; gap: 6px; }
+  .slider-label .sl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .slider-label .sl-name { font-size: 13px; font-weight: 500; }
+  .slider-label .sl-value { font-size: 13px; font-weight: 700; margin-left: 8px; }
+  .slider-label .sl-right { display: flex; align-items: center; gap: 6px; }
+  .slider-label .sl-typical { font-size: 11px; color: var(--tx4); }
+  .cut-badge { font-size: 10px; font-weight: 600; color: #0d9488; background: #f0fdfa; padding: 2px 6px; border-radius: 4px; }
+
+  /* Fake Streamlit slider (approximation of real appearance) */
+  .st-slider {
+    width: 100%; height: 20px; position: relative; margin: 4px 0 8px;
+    display: flex; align-items: center;
+  }
+  .st-slider .track {
+    width: 100%; height: 4px; background: #e0e0e0; border-radius: 2px; position: relative;
+  }
+  .st-slider .fill {
+    height: 100%; background: #ff4b4b; border-radius: 2px;
+  }
+  .st-slider .thumb {
+    position: absolute; top: -6px; width: 16px; height: 16px; border-radius: 50%;
+    background: #ff4b4b; transform: translateX(-50%);
+    box-shadow: 0 0 0 3px rgba(255,75,75,0.2);
+  }
+
+  /* ═══ CONTAINER BORDER (st.container(border=True)) ═══ */
+  .st-container {
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; margin-bottom: 12px; background: var(--card);
+  }
+  .st-container .container-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--bs);
+  }
+  .container-title { font-size: 14px; font-weight: 700; }
+  .container-sub { font-size: 11px; color: var(--tx4); }
+  .container-budget-label { font-size: 9px; color: var(--tx4); text-transform: uppercase; letter-spacing: 0.5px; }
+  .container-budget-value { font-size: 16px; font-weight: 700; color: var(--blu); }
+
+  /* ═══ IMPACT SUMMARY (st.markdown inside container) ═══ */
+  .impact-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; background: #f0fdfa; border-radius: 10px;
+    margin-top: 10px;
+  }
+  .impact-bar .ib-label { font-size: 11px; color: #0d9488; font-weight: 600; }
+  .impact-bar .ib-amount { font-size: 15px; font-weight: 800; color: #0d9488; }
+
+  /* ═══ ST.EXPANDER ═══ */
+  .st-expander {
+    border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 10px; background: var(--card);
+  }
+  .st-expander summary {
+    padding: 10px 14px; font-size: 13px; color: var(--tx2);
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px;
+  }
+  .st-expander summary::before { content: '›'; font-size: 16px; color: var(--tx4); }
+
+  /* ═══ ACTION BUTTONS (st.columns + st.button) ═══ */
+  .actions { display: flex; gap: 8px; margin: 14px 0; }
+  .actions .st-btn { flex: 1; margin: 0; }
+
+  /* ═══ REAL TALK (st.markdown) ═══ */
+  .real-talk { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+  .real-talk .rt-title { font-size: 14px; font-weight: 600; color: #92400e; margin-bottom: 4px; }
+  .real-talk .rt-body { font-size: 13px; color: #92400e; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- HERO — st.markdown(html, unsafe_allow_html=True)     -->
+<!-- Uses st.empty() placeholder, filled after sliders    -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="note">st.empty() → filled after sliders compute projected savings</div>
+
+<div class="hero">
+  <div class="hero-title">Savings Plan</div>
+  <div class="hero-month">April 2026</div>
+  <div class="waterfall">
+    <div class="wf-seg" style="flex:3.5;"><div class="wf-label">Income</div><div class="wf-amount">$18,363</div><div class="wf-bar" style="background:rgba(255,255,255,0.3);"></div></div>
+    <div class="wf-arrow">→</div>
+    <div class="wf-seg" style="flex:3;"><div class="wf-label">Fixed</div><div class="wf-amount">$13,715</div><div class="wf-bar" style="background:#6b7280;"></div></div>
+    <div class="wf-arrow">→</div>
+    <div class="wf-seg" style="flex:0.8;"><div class="wf-label">Save</div><div class="wf-amount">$1,500</div><div class="wf-bar" style="background:#a78bfa;"></div></div>
+    <div class="wf-arrow">→</div>
+    <div class="wf-seg" style="flex:1.5;"><div class="wf-label">Flex</div><div class="wf-amount">$3,148</div><div class="wf-bar" style="background:#34d399;"></div></div>
+  </div>
+  <div class="savings-result">
+    <div class="savings-label">Projected Monthly Savings</div>
+    <div class="savings-amount savings-miss">$-1,333</div>
+    <div class="savings-sub">Target: $1,500/mo · ≈ $-15,996/year</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PROJECTION PILLS — st.empty() → st.markdown(html)   -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="proj-row">
+  <div class="proj-pill" style="background:#fef2f2;"><div class="proj-label">Annual Savings</div><div class="proj-value" style="color:var(--red);">$-15,996</div></div>
+  <div class="proj-pill" style="background:#eff6ff;"><div class="proj-label">Post-Daycare</div><div class="proj-value" style="color:#2563eb;">$8,844<span style="font-size:12px;font-weight:500;">/yr</span></div></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- RECOMMEND BUTTON — st.button("✨ Recommend a Plan")  -->
+<!-- Standard Streamlit button (can't do gradient)        -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="note">st.button("✨ Recommend a Plan", use_container_width=True)</div>
+<button class="st-btn">✨ Recommend a Plan</button>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- MINIMUMS — st.expander("⚙ Set minimum spending")    -->
+<!-- Moved above sliders so users set floors first        -->
+<!-- ══════════════════════════════════════════════════════ -->
+<details class="st-expander">
+  <summary>⚙ Set minimum spending per category</summary>
+  <div style="padding:10px 14px;font-size:12px;color:var(--tx3);">
+    2-column number inputs for each category (already implemented)
+  </div>
+</details>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SLIDERS — st.container(border=True) + st.markdown    -->
+<!-- + st.slider for each category                        -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="note">st.container(border=True) wraps header + all sliders + impact bar</div>
+
+<div class="st-container">
+  <!-- Header — st.markdown inside container -->
+  <div class="container-header">
+    <div>
+      <div class="container-title">Adjust Spending</div>
+      <div class="container-sub">Drag sliders to find savings</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="container-budget-label">Flex Budget</div>
+      <div class="container-budget-value">$3,148</div>
+    </div>
+  </div>
+
+  <!-- Each category: st.markdown(label_html) + st.slider() -->
+
+  <!-- Cash & ATM (no cut) -->
+  <div class="slider-label">
+    <div class="sl-left">
+      <div class="sl-dot" style="background:#6366f1;"></div>
+      <span class="sl-name">Cash & ATM</span>
+      <span class="sl-value" style="color:#64748b;">$1,450</span>
+    </div>
+    <div class="sl-right">
+      <span class="sl-typical">of $1,450</span>
+    </div>
+  </div>
+  <div class="st-slider"><div class="track"><div class="fill" style="width:100%;"></div><div class="thumb" style="left:100%;"></div></div></div>
+
+  <!-- Financial & Legal (with cut) -->
+  <div class="slider-label">
+    <div class="sl-left">
+      <div class="sl-dot" style="background:#ec4899;"></div>
+      <span class="sl-name">Financial & Legal</span>
+      <span class="sl-value" style="color:#0d9488;">$350</span>
+    </div>
+    <div class="sl-right">
+      <span class="sl-typical">of $706</span>
+      <span class="cut-badge">−$356</span>
+    </div>
+  </div>
+  <div class="st-slider"><div class="track"><div class="fill" style="width:50%;"></div><div class="thumb" style="left:50%;"></div></div></div>
+
+  <!-- Groceries (with cut) -->
+  <div class="slider-label">
+    <div class="sl-left">
+      <div class="sl-dot" style="background:#f59e0b;"></div>
+      <span class="sl-name">Groceries</span>
+      <span class="sl-value" style="color:#0d9488;">$500</span>
+    </div>
+    <div class="sl-right">
+      <span class="sl-typical">of $643</span>
+      <span class="cut-badge">−$143</span>
+    </div>
+  </div>
+  <div class="st-slider"><div class="track"><div class="fill" style="width:78%;"></div><div class="thumb" style="left:78%;"></div></div></div>
+
+  <!-- Miscellaneous (with cut) -->
+  <div class="slider-label">
+    <div class="sl-left">
+      <div class="sl-dot" style="background:#10b981;"></div>
+      <span class="sl-name">Miscellaneous</span>
+      <span class="sl-value" style="color:#0d9488;">$200</span>
+    </div>
+    <div class="sl-right">
+      <span class="sl-typical">of $528</span>
+      <span class="cut-badge">−$328</span>
+    </div>
+  </div>
+  <div class="st-slider"><div class="track"><div class="fill" style="width:38%;"></div><div class="thumb" style="left:38%;"></div></div></div>
+
+  <!-- Shopping (with cut) -->
+  <div class="slider-label">
+    <div class="sl-left">
+      <div class="sl-dot" style="background:#3b82f6;"></div>
+      <span class="sl-name">Shopping</span>
+      <span class="sl-value" style="color:#0d9488;">$300</span>
+    </div>
+    <div class="sl-right">
+      <span class="sl-typical">of $515</span>
+      <span class="cut-badge">−$215</span>
+    </div>
+  </div>
+  <div class="st-slider"><div class="track"><div class="fill" style="width:58%;"></div><div class="thumb" style="left:58%;"></div></div></div>
+
+  <!-- Impact summary — st.markdown inside same container -->
+  <div class="impact-bar">
+    <span class="ib-label">✂ Total cuts from typical</span>
+    <span class="ib-amount">−$1,042/mo</span>
+  </div>
+</div>
+
+<!-- Extra categories — st.expander -->
+<details class="st-expander">
+  <summary>+ 14 smaller categories ($2,195/mo)</summary>
+  <div style="padding:10px 14px;">
+    <!-- Same slider-label + st.slider pattern for each -->
+    <div class="slider-label">
+      <div class="sl-left">
+        <div class="sl-dot" style="background:#8b5cf6;"></div>
+        <span class="sl-name">Online Shopping</span>
+        <span class="sl-value">$426</span>
+      </div>
+      <div class="sl-right"><span class="sl-typical">of $426</span></div>
+    </div>
+    <div class="st-slider"><div class="track"><div class="fill" style="width:100%;"></div><div class="thumb" style="left:100%;"></div></div></div>
+
+    <div class="slider-label">
+      <div class="sl-left">
+        <div class="sl-dot" style="background:#ef4444;"></div>
+        <span class="sl-name">Restaurants & Bars</span>
+        <span class="sl-value" style="color:#0d9488;">$250</span>
+      </div>
+      <div class="sl-right"><span class="sl-typical">of $401</span><span class="cut-badge">−$151</span></div>
+    </div>
+    <div class="st-slider"><div class="track"><div class="fill" style="width:62%;"></div><div class="thumb" style="left:62%;"></div></div></div>
+  </div>
+</details>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- ACTION BUTTONS — st.columns(2) + st.button           -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="note">st.columns(2) → st.button each</div>
+<div class="actions">
+  <button class="st-btn">Reset to Typical</button>
+  <button class="st-btn st-btn-primary">✓ Accept Plan</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- REAL TALK — st.markdown (conditional)                -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="real-talk">
+  <div class="rt-title">💡 Real talk</div>
+  <div class="rt-body">You've cut hard and you're still $291 short of your $1,500 target. Consider: is $1,500/mo realistic right now, or would saving $1,209/mo actually be a win?</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<div style="margin-top:24px;padding:14px;background:#f0f9ff;border-radius:12px;border:1px solid #bfdbfe;">
+  <div style="font-size:13px;font-weight:600;color:#1e40af;margin-bottom:6px;">Streamlit feasibility notes</div>
+  <ul style="font-size:12px;color:#374151;padding-left:18px;line-height:1.8;">
+    <li><strong>Hero card</strong> — pure HTML/CSS via st.markdown(). Uses st.empty() placeholder filled after sliders.</li>
+    <li><strong>Waterfall</strong> — pure HTML/CSS flexbox inside st.markdown().</li>
+    <li><strong>Projection pills</strong> — pure HTML via st.empty() placeholder, same as hero.</li>
+    <li><strong>Slider labels</strong> — st.markdown(html) rendered before each st.slider(). Already done in current code.</li>
+    <li><strong>Slider tracks</strong> — standard Streamlit red/blue. Cannot individually color per category.</li>
+    <li><strong>Container card</strong> — st.container(border=True) wraps header HTML + all sliders + impact HTML.</li>
+    <li><strong>Impact bar</strong> — st.markdown(html) inside the container, after all sliders.</li>
+    <li><strong>Buttons</strong> — standard st.button(). "Accept Plan" uses type="primary" (Streamlit red).</li>
+    <li><strong>Expanders</strong> — standard st.expander() for minimums and extra categories.</li>
+    <li><strong>Real talk</strong> — conditional st.markdown(html). Already implemented.</li>
+    <li><strong>"Reset to Typical"</strong> — resets all plan_targets to their avg values + st.rerun().</li>
+  </ul>
+</div>
+
+</body>
+</html>

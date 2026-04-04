@@ -736,6 +736,99 @@ def inject_css():
     }
     .vw-trend-line strong { color: var(--vw-text); }
 
+    /* ── Plan hero V2 (dark gradient) ───────────────────── */
+    .vw-plan-hero-v2 {
+        background: linear-gradient(135deg, #1e1b4b, #312e81);
+        border-radius: 20px; padding: 20px; color: #fff;
+        margin-bottom: 14px; position: relative; overflow: hidden;
+    }
+    .vw-plan-hero-v2::after {
+        content: ''; position: absolute; top: -50%; right: -30%;
+        width: 200px; height: 200px; border-radius: 50%;
+        background: rgba(99,102,241,0.15);
+    }
+    .vw-plan-hero-v2 .ph-title {
+        font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+        opacity: 0.6; margin-bottom: 4px;
+    }
+    .vw-plan-hero-v2 .ph-month {
+        font-size: 16px; font-weight: 700; margin-bottom: 16px;
+    }
+    .vw-plan-waterfall {
+        display: flex; gap: 0; margin-bottom: 14px;
+        position: relative; z-index: 1;
+    }
+    .vw-plan-waterfall .wf-seg { text-align: center; padding: 8px 4px; }
+    .vw-plan-waterfall .wf-label {
+        font-size: 9px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .vw-plan-waterfall .wf-amount {
+        font-size: 14px; font-weight: 700; margin-top: 2px;
+    }
+    .vw-plan-waterfall .wf-bar {
+        height: 4px; border-radius: 2px; margin-top: 6px;
+    }
+    .vw-plan-waterfall .wf-arrow {
+        display: flex; align-items: center; color: rgba(255,255,255,0.3);
+        font-size: 12px; padding: 0 2px;
+    }
+    .vw-plan-hero-v2 .ph-savings {
+        text-align: center; padding: 12px 0;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        position: relative; z-index: 1;
+    }
+    .vw-plan-hero-v2 .ph-savings-label {
+        font-size: 10px; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .vw-plan-hero-v2 .ph-savings-amount {
+        font-size: 32px; font-weight: 800; letter-spacing: -1px; margin: 4px 0;
+    }
+    .vw-plan-hero-v2 .ph-savings-sub {
+        font-size: 12px; opacity: 0.7;
+    }
+
+    /* Plan projection pills */
+    .vw-plan-proj-row {
+        display: flex; gap: 8px; margin-bottom: 14px;
+    }
+    .vw-plan-proj-pill {
+        flex: 1; padding: 12px; border-radius: 14px; text-align: center;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .vw-plan-proj-pill .pp-label {
+        font-size: 10px; color: var(--vw-text-faint); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .vw-plan-proj-pill .pp-value {
+        font-size: 18px; font-weight: 800; margin-top: 2px;
+    }
+
+    /* Plan slider container header */
+    .vw-plan-slider-header {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 10px; padding-bottom: 10px;
+        border-bottom: 1px solid var(--vw-border);
+    }
+    .vw-plan-slider-header .psh-title { font-size: 14px; font-weight: 700; }
+    .vw-plan-slider-header .psh-sub { font-size: 11px; color: var(--vw-text-faint); }
+    .vw-plan-slider-header .psh-budget-label {
+        font-size: 9px; color: var(--vw-text-faint); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .vw-plan-slider-header .psh-budget-value {
+        font-size: 16px; font-weight: 700; color: #6366f1;
+    }
+
+    /* Plan impact bar */
+    .vw-plan-impact {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 12px; background: #f0fdfa; border-radius: 10px; margin-top: 10px;
+    }
+    .vw-plan-impact .pi-label {
+        font-size: 11px; color: #0d9488; font-weight: 600;
+    }
+    .vw-plan-impact .pi-amount {
+        font-size: 15px; font-weight: 800; color: #0d9488;
+    }
+
     /* V5 Mobile responsive additions */
     @media (max-width: 768px) {
         .vw-hero-v5 { padding: 16px; border-radius: 16px; }
@@ -757,6 +850,10 @@ def inject_css():
         .vw-chip .chip-amount { font-size: 12px; }
         .vw-stats-grid .stat-value { font-size: 13px; }
         .vw-forecast-row .fc-value { font-size: 14px; }
+        .vw-plan-hero-v2 { padding: 16px; border-radius: 16px; }
+        .vw-plan-hero-v2 .ph-savings-amount { font-size: clamp(1.5rem, 7vw, 2rem); }
+        .vw-plan-waterfall .wf-amount { font-size: 12px; }
+        .vw-plan-proj-pill .pp-value { font-size: 15px; }
     }
 </style>""", unsafe_allow_html=True)
 
