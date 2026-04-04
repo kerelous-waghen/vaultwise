@@ -1,15 +1,27 @@
 """Centralized category filtering — single source of truth.
 
-All category type logic (fix/flex/exclude) is driven by the `category_config`
-database table. No hardcoded category sets anywhere in the codebase.
+Category type logic uses BOTH:
+- config.FIXED_MONTHLY_EXPENSES (curated fixed bills — highest priority)
+- category_config DB table (fix/flex/exclude)
+- config.EXCLUDED_CATEGORIES (transfers, CC payments)
+
+If a category is in config.FIXED_MONTHLY_EXPENSES, it's ALWAYS fixed —
+regardless of what the DB says. This prevents DB misclassification bugs.
 """
 
+import config as _cfg
 import database
 
 
+def _get_config_fixed() -> set:
+    """Categories from config.FIXED_MONTHLY_EXPENSES — always treated as fixed."""
+    return set(getattr(_cfg, 'FIXED_MONTHLY_EXPENSES', {}).keys())
+
+
 def get_fixed_categories(conn) -> set:
-    """Returns set of category names tagged as 'fix' in DB."""
-    return set(database.get_categories_by_type(conn, "fix"))
+    """Returns set of fixed category names: config + DB 'fix' type."""
+    db_fixed = set(database.get_categories_by_type(conn, "fix"))
+    return db_fixed | _get_config_fixed()
 
 
 def get_excluded_categories(conn) -> set:
@@ -18,13 +30,20 @@ def get_excluded_categories(conn) -> set:
 
 
 def get_flex_categories(conn) -> set:
-    """Returns set of category names that are flex — explicit + unconfigured (default flex)."""
+    """Returns set of flex categories — everything that's NOT fixed and NOT excluded."""
     explicit_flex = set(database.get_categories_by_type(conn, "flex"))
     all_configured = {r["name"] for r in database.get_all_category_config(conn)}
     all_txn_cats = {r[0] for r in conn.execute(
         "SELECT DISTINCT category FROM transactions"
     ).fetchall()}
-    return explicit_flex | (all_txn_cats - all_configured)
+    unconfigured = all_txn_cats - all_configured
+    # Start with explicit flex + unconfigured
+    flex = explicit_flex | unconfigured
+    # Remove anything that's actually fixed (config is source of truth)
+    flex -= _get_config_fixed()
+    # Remove anything excluded
+    flex -= get_excluded_categories(conn)
+    return flex
 
 
 def get_filtered_breakdown(conn, month_key: str) -> list[dict]:
