@@ -35,9 +35,13 @@ if not os.path.exists(_private_path):
             exec(compile(_content, "<config_private>", "exec"), _mod.__dict__)  # noqa: S102
             _sys.modules["config_private"] = _mod
         except Exception as _e:
-            # Log the error but don't crash — fall through to defaults
+            # Log the error AND show it on the page so user can debug
             import logging as _logging
             _logging.error(f"config_private exec failed: {_e}")
+            try:
+                st.warning(f"config_private load failed: {type(_e).__name__}: {_e}")
+            except Exception:
+                pass
             _content = ""  # force fallback
     if not _content:
         # No secret found — create minimal module with defaults
