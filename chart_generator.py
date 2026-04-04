@@ -287,6 +287,180 @@ def generate_month_progress_chart(disc_budget: float, disc_spent: float,
     return _to_png(fig, width=800, height=250)
 
 
+def generate_report_dashboard(report_data: dict) -> bytes:
+    """Single dashboard image for the weekly Telegram report.
+
+    Three panels:
+      - Top: Category deviations vs average (red=over, green=under)
+      - Bottom-left: Week-by-week flex spending pace
+      - Bottom-right: 6-month savings trend with target line
+    """
+    from plotly.subplots import make_subplots
+    from calendar import month_name
+    from datetime import date
+
+    over_avg = report_data.get("over_avg", [])
+    under_avg = report_data.get("under_avg", [])
+    weekly_breakdown = report_data.get("weekly_breakdown", [])
+    savings_trend = report_data.get("savings_trend_6m", [])
+    disc_budget = report_data.get("disc_budget", 0)
+    target = report_data.get("savings_target", 2000)
+    week_num = report_data.get("week_number", 1)
+    phase = report_data.get("month_phase", "middle")
+
+    today = date.fromisoformat(report_data["report_date"])
+    title = f"{month_name[today.month].upper()} {today.year}"
+
+    has_deviations = bool(over_avg or under_avg)
+    has_weeks = bool(weekly_breakdown)
+    has_trend = bool(savings_trend)
+
+    # Determine layout based on available data
+    if has_deviations and (has_weeks or has_trend):
+        fig = make_subplots(
+            rows=2, cols=2,
+            row_heights=[0.55, 0.45],
+            subplot_titles=["Category vs Average", "", "Week-by-Week Pace", "6-Month Savings"],
+            horizontal_spacing=0.12, vertical_spacing=0.15,
+            specs=[[{"colspan": 2}, None], [{}, {}]],
+        )
+    elif has_deviations:
+        fig = make_subplots(rows=1, cols=1, subplot_titles=["Category vs Average"])
+    else:
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=["Week-by-Week Pace", "6-Month Savings"],
+            horizontal_spacing=0.12,
+        )
+
+    # ── Panel 1: Category Deviations ─────────────────────────────
+    if has_deviations:
+        all_devs = list(reversed(over_avg)) + list(reversed(under_avg))
+        cats = [d["category"] for d in all_devs]
+        devs = [d["dev"] for d in all_devs]
+        bar_colors = ["#ef4444" if d > 0 else "#10b981" for d in devs]
+        labels = [f"+${d:,.0f}" if d > 0 else f"\u2212${abs(d):,.0f}" for d in devs]
+
+        fig.add_trace(go.Bar(
+            y=cats, x=devs, orientation="h",
+            marker_color=bar_colors,
+            text=labels, textposition="outside",
+            textfont=dict(size=13, color=bar_colors),
+            showlegend=False,
+        ), row=1, col=1)
+
+        fig.add_vline(x=0, line_color="#94a3b8", line_width=1, row=1, col=1)
+
+        # Add avg annotation on each bar
+        for i, d in enumerate(all_devs):
+            fig.add_annotation(
+                y=d["category"], x=0,
+                text=f"avg ${d['avg']:,.0f}", showarrow=False,
+                font=dict(size=10, color="#94a3b8"),
+                xshift=-35 if d["dev"] > 0 else 35,
+                row=1, col=1,
+            )
+
+    # ── Panel 2: Week-by-Week Pace ───────────────────────────────
+    bottom_row = 2 if has_deviations else 1
+    if has_weeks:
+        wk_labels = [f"W{wk['week_num']}" for wk in weekly_breakdown]
+        wk_totals = [abs(wk.get("total", 0)) for wk in weekly_breakdown]
+        wk_colors = []
+        for wk in weekly_breakdown:
+            if wk["week_num"] == week_num and phase != "end":
+                wk_colors.append("#6366f1")  # Current week = indigo
+            elif wk["week_num"] < week_num or phase == "end":
+                wk_colors.append("#3b82f6")  # Past weeks = blue
+            else:
+                wk_colors.append("#e2e8f0")  # Future weeks = light gray
+
+        fig.add_trace(go.Bar(
+            x=wk_labels, y=wk_totals,
+            marker_color=wk_colors,
+            text=[f"${v:,.0f}" for v in wk_totals],
+            textposition="outside",
+            textfont=dict(size=11),
+            showlegend=False,
+        ), row=bottom_row, col=1)
+
+        # Budget pace line (budget / num weeks)
+        if disc_budget > 0 and len(weekly_breakdown) > 0:
+            weekly_budget = disc_budget / len(weekly_breakdown)
+            fig.add_hline(
+                y=weekly_budget, line_dash="dash", line_color="#f59e0b",
+                line_width=2, row=bottom_row, col=1,
+                annotation_text=f"${weekly_budget:,.0f}/wk pace",
+                annotation_font=dict(size=10, color="#f59e0b"),
+            )
+
+    # ── Panel 3: 6-Month Savings Trend ───────────────────────────
+    if has_trend:
+        trend_col = 2
+        m_labels = []
+        m_saved = []
+        m_colors = []
+        for s in savings_trend:
+            _y, _m = s["month"].split("-")
+            m_labels.append(month_name[int(_m)][:3])
+            m_saved.append(s["saved"])
+            if s["saved"] >= target:
+                m_colors.append("#10b981")  # Hit target = green
+            elif s["saved"] > 0:
+                m_colors.append("#f59e0b")  # Positive but missed = amber
+            else:
+                m_colors.append("#ef4444")  # Negative = red
+
+        fig.add_trace(go.Bar(
+            x=m_labels, y=m_saved,
+            marker_color=m_colors,
+            text=[f"${v:,.0f}" for v in m_saved],
+            textposition="outside",
+            textfont=dict(size=11),
+            showlegend=False,
+        ), row=bottom_row, col=trend_col)
+
+        # Target line
+        fig.add_hline(
+            y=target, line_dash="dash", line_color="#2c3e50",
+            line_width=2, row=bottom_row, col=trend_col,
+            annotation_text=f"Target ${target:,}",
+            annotation_font=dict(size=10, color="#2c3e50"),
+        )
+
+        # Zero line if there are negative values
+        if any(s < 0 for s in m_saved):
+            fig.add_hline(y=0, line_color="#94a3b8", line_width=1,
+                          row=bottom_row, col=trend_col)
+
+    # ── Layout ───────────────────────────────────────────────────
+    total_height = 700 if has_deviations and (has_weeks or has_trend) else 400
+    fig.update_layout(
+        title=dict(
+            text=f"<b>{title} \u2014 Weekly Report</b>",
+            font=dict(size=18),
+            x=0.5,
+        ),
+        height=total_height,
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(family="Arial, sans-serif", size=12, color="#334155"),
+        margin=dict(l=20, r=20, t=60, b=20),
+        showlegend=False,
+    )
+
+    # Clean up axes
+    fig.update_xaxes(showgrid=True, gridcolor="#f1f5f9", zeroline=False)
+    fig.update_yaxes(showgrid=False, zeroline=False)
+
+    # Category panel: hide x-axis ticks, show grid
+    if has_deviations:
+        fig.update_xaxes(showticklabels=False, row=1, col=1)
+        fig.update_yaxes(tickfont=dict(size=12), row=1, col=1)
+
+    return _to_png(fig, width=900, height=total_height)
+
+
 def _empty_chart(message: str) -> bytes:
     """Generate a placeholder chart with a message."""
     fig = go.Figure()

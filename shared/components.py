@@ -354,29 +354,85 @@ def render_category_card(cat_data, trend_d, conn, claude_actions, selected_month
 CATEGORY_EMOJIS = {
     "Groceries": "🛒", "Restaurants & Bars": "🍽", "Coffee Shops": "☕",
     "Shopping": "🛍", "Online Shopping": "📦", "Clothing": "👕",
-    "Entertainment & Travel": "🎭", "Electronics": "📱", "Home Improvement": "🔨",
-    "Medical": "🏥", "Child Activities": "⚽", "Education": "📚",
-    "Cash & ATM": "💵", "Miscellaneous": "❓", "Financial Fees": "💳",
-    "Charity": "❤️", "Mortgage": "🏠", "Insurance": "🛡",
-    "Gas & Electric": "⚡", "Water": "💧", "Internet & Cable": "📡",
-    "Phone": "📱", "Student Loans": "🎓", "Garbage": "🗑",
-    "Loan Repayment": "🏦", "Transfer": "🔄", "Credit Card Payment": "💳",
+    "Entertainment & Travel": "🎭", "Entertainment & Recreation": "🎭",
+    "Electronics": "📱", "Home Improvement": "🔨",
+    "Medical": "🏥", "Dentist": "🦷", "Child Activities": "⚽",
+    "Child Care": "👶", "Education": "📚",
+    "Cash & ATM": "💵", "Miscellaneous": "❓",
+    "Financial Fees": "💳", "Financial & Legal Services": "⚖️",
+    "Charity": "❤️", "Church": "❤️",
+    "Mortgage": "🏠", "Insurance": "🛡", "Car Insurance": "🚗",
+    "Auto Loan": "🚗", "Auto Maintenance": "🔧",
+    "Gas & Electric": "⚡", "PSE Electric": "⚡",
+    "Water": "💧", "Internet": "📡", "Internet & Cable": "📡",
+    "Phone": "📱", "T-Mobile": "📱",
+    "Student Loan": "🎓", "Student Loans": "🎓",
+    "Garbage": "🗑", "Garbage & Recycling": "🗑",
+    "Loan Repayment": "🏦", "Affirm": "🏦",
+    "Transfer": "🔄", "Transfers": "🔄",
+    "Credit Card Payment": "💳", "Credit Card Payments": "💳",
+    "Daycare": "👶", "Gas": "⛽", "Gas (fuel)": "⛽",
+    "Digital Subscriptions": "📺", "Diet": "🥗",
+    "Travel": "✈️", "Travel & Vacation": "✈️",
+    "Furniture": "🛋", "Furniture & Housewares": "🛋",
+    "Gifts": "🎁", "Personal": "👤",
+    "Balance Adjustments": "⚖️", "Financial Transfers": "🔄",
+    "Taxes": "📄", "Check": "📝",
+    "Parking": "🅿️", "Parking & Tolls": "🅿️",
+    "Postage": "📮", "Postage & Shipping": "📮",
+    "Office Supplies": "🗂", "Office Supplies & Expenses": "🗂",
+    "Rent": "🏠", "Business": "💼",
 }
 
 CATEGORY_ICON_BG = {
     "Groceries": "#dcfce7", "Restaurants & Bars": "#fef3c7", "Coffee Shops": "#fef3c7",
     "Shopping": "#e0e7ff", "Online Shopping": "#e0e7ff", "Clothing": "#e0e7ff",
-    "Entertainment & Travel": "#fce7f3", "Electronics": "#dbeafe", "Home Improvement": "#fef3c7",
-    "Medical": "#fee2e2", "Child Activities": "#e0e7ff", "Education": "#dbeafe",
-    "Cash & ATM": "#dcfce7", "Miscellaneous": "#f3f4f6", "Financial Fees": "#fee2e2",
+    "Entertainment & Travel": "#fce7f3", "Entertainment & Recreation": "#fce7f3",
+    "Electronics": "#dbeafe", "Home Improvement": "#fef3c7",
+    "Medical": "#fee2e2", "Dentist": "#fee2e2", "Child Activities": "#e0e7ff",
+    "Child Care": "#fce7f3", "Education": "#dbeafe",
+    "Cash & ATM": "#dcfce7", "Miscellaneous": "#f3f4f6",
+    "Financial Fees": "#fee2e2", "Financial & Legal Services": "#f3f4f6",
+    "Charity": "#fce7f3", "Church": "#fce7f3",
+    "Mortgage": "#f3f4f6", "Insurance": "#dbeafe", "Car Insurance": "#dbeafe",
+    "Auto Loan": "#dbeafe", "Auto Maintenance": "#fef3c7",
+    "Gas & Electric": "#fef3c7", "PSE Electric": "#fef3c7",
+    "Water": "#dbeafe", "Internet": "#e0e7ff", "Internet & Cable": "#e0e7ff",
+    "Phone": "#e0e7ff", "T-Mobile": "#e0e7ff",
+    "Student Loan": "#e0e7ff", "Student Loans": "#e0e7ff",
+    "Garbage": "#f3f4f6", "Garbage & Recycling": "#f3f4f6",
+    "Loan Repayment": "#f3f4f6", "Affirm": "#f3f4f6",
+    "Daycare": "#fce7f3", "Gas": "#fef3c7", "Gas (fuel)": "#fef3c7",
+    "Digital Subscriptions": "#e0e7ff", "Diet": "#dcfce7",
+    "Travel": "#fce7f3", "Travel & Vacation": "#fce7f3",
+    "Furniture": "#fef3c7", "Furniture & Housewares": "#fef3c7",
+    "Gifts": "#fce7f3", "Personal": "#f3f4f6",
 }
 
 
 def get_category_icon(category: str) -> tuple[str, str]:
-    """Return (emoji, bg_color) for a category name."""
-    emoji = CATEGORY_EMOJIS.get(category, "📋")
-    bg = CATEGORY_ICON_BG.get(category, "#f3f4f6")
-    return emoji, bg
+    """Return (emoji, bg_color) for a category name.
+
+    Tries exact match first, then partial match on the start of the name
+    to handle names like 'Mortgage (Mr. Cooper 6.49%)' matching 'Mortgage'.
+    """
+    # Exact match
+    if category in CATEGORY_EMOJIS:
+        return CATEGORY_EMOJIS[category], CATEGORY_ICON_BG.get(category, "#f3f4f6")
+
+    # Partial match: check if category starts with any known key
+    _cat_lower = category.lower()
+    for key in sorted(CATEGORY_EMOJIS.keys(), key=len, reverse=True):
+        if _cat_lower.startswith(key.lower()):
+            return CATEGORY_EMOJIS[key], CATEGORY_ICON_BG.get(key, "#f3f4f6")
+
+    # Keyword match: check if any key word appears in category
+    for key in CATEGORY_EMOJIS:
+        _first_word = key.split()[0].lower()
+        if len(_first_word) >= 4 and _first_word in _cat_lower:
+            return CATEGORY_EMOJIS[key], CATEGORY_ICON_BG.get(key, "#f3f4f6")
+
+    return "📋", "#f3f4f6"
 
 
 # ── Transaction display components ─────────────────────────────────
@@ -431,6 +487,197 @@ def render_txn_group(date_label, daily_total, txn_rows):
         )
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Transaction V2 components ──────────────────────────────────────
+
+_TXN_CAT_COLORS = [
+    "#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6",
+    "#8b5cf6", "#ef4444", "#14b8a6", "#f97316", "#64748b",
+]
+
+
+def render_txn_summary(month_label, txn_count, total_spent, category_totals):
+    """Render spending summary hero with category breakdown bar.
+
+    category_totals: dict or Series {category_name: abs_total} sorted descending.
+    """
+    _top = list(category_totals.items())[:4] if hasattr(category_totals, 'items') else []
+    _total = sum(v for _, v in _top) if _top else 1
+    _all_total = sum(category_totals.values()) if hasattr(category_totals, 'values') else total_spent
+    _all_total = max(_all_total, 1)
+
+    # Breakdown bar segments
+    _bar_html = '<div class="vw-txn-breakdown">'
+    for i, (cat, amt) in enumerate(list(category_totals.items())[:6] if hasattr(category_totals, 'items') else []):
+        _pct = amt / _all_total * 100
+        _color = _TXN_CAT_COLORS[i % len(_TXN_CAT_COLORS)]
+        _bar_html += f'<div style="flex:{_pct:.0f};background:{_color};"></div>'
+    _remaining_pct = 100 - sum(
+        (amt / _all_total * 100) for _, amt in (list(category_totals.items())[:6] if hasattr(category_totals, 'items') else [])
+    )
+    if _remaining_pct > 1:
+        _bar_html += f'<div style="flex:{_remaining_pct:.0f};background:#d1d5db;"></div>'
+    _bar_html += '</div>'
+
+    # Legend
+    _legend_html = '<div class="vw-txn-legend">'
+    for i, (cat, amt) in enumerate(_top):
+        _color = _TXN_CAT_COLORS[i % len(_TXN_CAT_COLORS)]
+        _legend_html += (
+            f'<div class="tl-item">'
+            f'<div class="tl-dot" style="background:{_color};"></div>'
+            f'{cat} ${amt:,.0f}</div>'
+        )
+    _extra_count = len(category_totals) - 4 if hasattr(category_totals, '__len__') and len(category_totals) > 4 else 0
+    if _extra_count > 0:
+        _legend_html += f'<div class="tl-item"><div class="tl-dot" style="background:#d1d5db;"></div>+{_extra_count} more</div>'
+    _legend_html += '</div>'
+
+    html = (
+        f'<div class="vw-txn-summary">'
+        f'<div class="ts-top">'
+        f'<div><div class="ts-month-label">{month_label}</div>'
+        f'<div class="ts-txn-count">{txn_count} transactions</div></div>'
+        f'<div><div class="ts-total-label">Total Spent</div>'
+        f'<div class="ts-total" style="color:#ef4444;">${total_spent:,.0f}</div></div>'
+        f'</div>'
+        f'{_bar_html}{_legend_html}'
+        f'</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_txn_quick_stats(avg_per_day, largest_charge, flex_remaining):
+    """Render 3-pill quick stats row."""
+    _flex_color = "#10b981" if flex_remaining > 0 else "#ef4444"
+    _flex_label = "Flex Left" if flex_remaining > 0 else "Over Budget"
+    html = (
+        f'<div class="vw-txn-stats-row">'
+        f'<div class="vw-txn-stat-pill">'
+        f'<div class="tsp-label">Avg / Day</div>'
+        f'<div class="tsp-value">${avg_per_day:,.0f}</div></div>'
+        f'<div class="vw-txn-stat-pill">'
+        f'<div class="tsp-label">Largest</div>'
+        f'<div class="tsp-value" style="color:#ef4444;">${largest_charge:,.0f}</div></div>'
+        f'<div class="vw-txn-stat-pill">'
+        f'<div class="tsp-label">{_flex_label}</div>'
+        f'<div class="tsp-value" style="color:{_flex_color};">${abs(flex_remaining):,.0f}</div></div>'
+        f'</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_txn_group_v2(date_label, daily_total, txn_rows):
+    """Render a date-grouped set of transaction cards (V2 with type tags + bigger icons)."""
+    _total_color = "#10b981" if daily_total > 0 else "#6b7280"
+    _total_sign = "+" if daily_total > 0 else "−"
+    total_str = f'<span style="color:{_total_color};">{_total_sign}${abs(daily_total):,.0f}</span>' if daily_total != 0 else ""
+
+    html = (
+        f'<div style="margin-bottom:12px;">'
+        f'<div class="vw-txn-date-header">'
+        f'<span class="dh-date">{date_label}</span>'
+        f'<span class="dh-total">{total_str}</span>'
+        f'</div>'
+        f'<div class="vw-txn-card-v2">'
+    )
+    for txn in txn_rows:
+        _amt = txn["amount"]
+        _color = "#ef4444" if _amt < 0 else "#22c55e"
+        _sign = "−" if _amt < 0 else "+"
+
+        # Type tag
+        _tag = txn.get("tag", "flex")
+        if _tag == "muted":
+            _tag = "fixed"
+        if _amt > 0:
+            _tag_html = '<span class="vw-type-tag vw-tag-income">income</span>'
+        elif _tag == "fixed":
+            _tag_html = '<span class="vw-type-tag vw-tag-fixed">fixed</span>'
+        else:
+            _tag_html = '<span class="vw-type-tag vw-tag-flex">flex</span>'
+
+        html += (
+            f'<div class="vw-txn-row-v2">'
+            f'<div class="txn-icon-v2" style="background:{txn.get("bg_color", "#f3f4f6")};">{txn.get("icon", "📋")}</div>'
+            f'<div class="txn-details-v2">'
+            f'<div class="txn-name-v2">{txn["name"]}</div>'
+            f'<div class="txn-meta-v2">'
+            f'{txn["category"]}'
+            f'<div class="meta-dot"></div>'
+            f'{_tag_html}'
+            f'</div></div>'
+            f'<div class="txn-right-v2">'
+            f'<div class="txn-amount-v2" style="color:{_color};">{_sign}${abs(_amt):,.2f}</div>'
+            f'<div class="txn-account-v2">{txn.get("account", "")}</div>'
+            f'</div></div>'
+        )
+    html += '</div></div>'
+    st.markdown(html, unsafe_allow_html=True)
+
+
+# ── Settings page components ────────────────────────────────────────
+
+def render_settings_card_open():
+    """Open a settings card container."""
+    st.markdown('<div class="vw-settings-card">', unsafe_allow_html=True)
+
+
+def render_settings_card_close():
+    """Close a settings card container."""
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_settings_row(icon, icon_bg, title, subtitle, value_html):
+    """Render a single iOS-style settings row."""
+    st.markdown(
+        f'<div class="vw-settings-row">'
+        f'<div class="vw-settings-icon" style="background:{icon_bg};">{icon}</div>'
+        f'<div class="vw-settings-info">'
+        f'<div class="vw-settings-title">{title}</div>'
+        f'<div class="vw-settings-sub">{subtitle}</div>'
+        f'</div>'
+        f'<div class="vw-settings-right">{value_html}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_income_hero(combined, person1_name, person1_amt, person2_name, person2_amt):
+    """Render income hero card with split bar."""
+    _total = max(person1_amt + person2_amt, 1)
+    _p1_pct = person1_amt / _total * 100
+    st.markdown(
+        f'<div class="vw-income-hero">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+        f'<div>'
+        f'<div style="font-size:11px;color:var(--vw-text-faint);text-transform:uppercase;letter-spacing:0.5px;">Combined Take-Home</div>'
+        f'<div style="font-size:24px;font-weight:800;">${combined:,.0f}<span style="font-size:14px;font-weight:500;color:var(--vw-text-faint);">/mo</span></div>'
+        f'</div></div>'
+        f'<div class="vw-income-bar">'
+        f'<div style="flex:{_p1_pct:.0f};background:#6366f1;border-radius:4px 0 0 4px;"></div>'
+        f'<div style="flex:{100 - _p1_pct:.0f};background:#ec4899;border-radius:0 4px 4px 0;"></div>'
+        f'</div>'
+        f'<div class="vw-income-legend">'
+        f'<div class="il-item"><div class="il-dot" style="background:#6366f1;"></div>{person1_name} ${person1_amt:,.0f}</div>'
+        f'<div class="il-item"><div class="il-dot" style="background:#ec4899;"></div>{person2_name} ${person2_amt:,.0f}</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_db_stats(txn_count, stmt_count, api_cost=0):
+    """Render 3-pill database stats row."""
+    _cost_str = f"${api_cost:.2f}" if api_cost > 0 else "—"
+    st.markdown(
+        f'<div class="vw-db-stats">'
+        f'<div class="vw-db-pill"><div class="dp-label">Transactions</div><div class="dp-value">{txn_count:,}</div></div>'
+        f'<div class="vw-db-pill"><div class="dp-label">Statements</div><div class="dp-value">{stmt_count}</div></div>'
+        f'<div class="vw-db-pill"><div class="dp-label">API Cost</div><div class="dp-value" style="color:var(--vw-text-muted);">{_cost_str}</div></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ── Plan / Savings Journey components ──────────────────────────────

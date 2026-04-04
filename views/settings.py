@@ -23,10 +23,13 @@ from shared.state import get_conn, get_advisor, escape_dollars
 
 
 def settings_page():
-    st.markdown('<div style="font-size:18px;font-weight:700;color:var(--vw-text);margin-bottom:16px;">Settings</div>', unsafe_allow_html=True)
+    from shared.components import (
+        render_settings_row, render_income_hero, render_db_stats,
+    )
     conn = get_conn()
 
     # ── 1. Savings Target ─────────────────────────────────────────────
+    st.markdown('<div class="vw-section-label">Savings Target</div>', unsafe_allow_html=True)
     _cur_target = int(database.get_setting(conn, "monthly_savings_target", "2000"))
 
     # We need income data early to compute savings % of income
@@ -44,19 +47,19 @@ def settings_page():
     _combined_pre = _k_monthly_pre + _k_bonus_spread_pre + _m_monthly_pre + _m_bonus_spread_pre
 
     _savings_pct = round(_cur_target / max(_combined_pre, 1) * 100)
-    st.markdown(
-        f'<div style="background:var(--vw-card-bg);border-radius:16px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:12px;">'
-        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-        f'<div>'
-        f'<div style="font-size:11px;font-weight:600;color:var(--vw-text-faint);text-transform:uppercase;letter-spacing:0.8px;">Savings Target</div>'
-        f'<div style="font-size:24px;font-weight:800;color:var(--vw-text);margin-top:2px;">${_cur_target:,}<span style="font-size:14px;font-weight:500;color:var(--vw-text-muted);">/mo</span></div>'
-        f'</div>'
-        f'<div style="text-align:right;">'
-        f'<div style="font-size:22px;font-weight:700;color:#2563eb;">{_savings_pct}%</div>'
-        f'<div style="font-size:11px;color:var(--vw-text-muted);">of income</div></div></div>'
-        f'<div style="height:6px;background:var(--vw-progress-bg);border-radius:3px;margin-top:10px;">'
-        f'<div style="height:100%;width:{min(_savings_pct, 100)}%;background:#2563eb;border-radius:3px;"></div></div>'
-        f'</div>', unsafe_allow_html=True)
+    _period_opts = ["weekly", "biweekly", "monthly"]
+    _cur_period = database.get_setting(conn, "report_period", "weekly")
+    _period_label = {"weekly": "Weekly", "biweekly": "Bi-weekly", "monthly": "Monthly"}.get(_cur_period, "Weekly")
+
+    # Settings card with two rows
+    st.markdown('<div class="vw-settings-card">', unsafe_allow_html=True)
+    render_settings_row("🎯", "#f0fdf4", "Monthly Goal",
+                        f"{_savings_pct}% of income",
+                        f'<div class="vw-settings-value" style="color:#10b981;">${_cur_target:,}/mo</div>')
+    render_settings_row("📊", "#f5f3ff", "Report Frequency",
+                        "Email + Telegram digest",
+                        f'<div class="vw-settings-badge vw-badge-ok">{_period_label}</div>')
+    st.markdown('</div>', unsafe_allow_html=True)
 
     with st.expander("Edit Savings Target", expanded=False):
         _set_c1, _set_c2 = st.columns(2)
@@ -73,29 +76,18 @@ def settings_page():
             database.set_setting(conn, "report_period", _new_period)
 
     # ── 2. Income ─────────────────────────────────────────────────────
-    # Income overview card (read defaults; inputs are inside expander below)
+    st.markdown('<div class="vw-section-label">Income</div>', unsafe_allow_html=True)
     _k_monthly = _k_monthly_pre
     _m_monthly = _m_monthly_pre
     _k_bonus_spread = _k_bonus_spread_pre
     _m_bonus_spread = _m_bonus_spread_pre
     _combined = _combined_pre
 
-    _inc_total = _combined
-    _k_pct = (_k_monthly + _k_bonus_spread) / max(_inc_total, 1) * 100
-    _m_pct = 100 - _k_pct
-
-    st.markdown(
-        f'<div style="background:var(--vw-card-bg);border-radius:16px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:12px;">'
-        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
-        f'<span style="font-size:11px;font-weight:600;color:var(--vw-text-faint);text-transform:uppercase;letter-spacing:0.8px;">Monthly Income</span>'
-        f'<span style="font-size:16px;font-weight:800;color:var(--vw-text);">${_combined:,}</span></div>'
-        f'<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;">'
-        f'<div style="flex:{_k_pct:.0f};background:#2563eb;"></div>'
-        f'<div style="flex:{_m_pct:.0f};background:#7c3aed;"></div></div>'
-        f'<div style="display:flex;justify-content:space-between;font-size:12px;">'
-        f'<span style="color:var(--vw-text-muted);">{_inc_label_1} ${_k_monthly + _k_bonus_spread:,}</span>'
-        f'<span style="color:var(--vw-text-muted);">{_inc_label_2} ${_m_monthly + _m_bonus_spread:,}</span>'
-        f'</div></div>', unsafe_allow_html=True)
+    render_income_hero(
+        _combined,
+        _inc_label_1, _k_monthly + _k_bonus_spread,
+        _inc_label_2, _m_monthly + _m_bonus_spread,
+    )
 
     with st.expander("Edit Income", expanded=False):
         _inc_c1, _inc_c2 = st.columns(2)
@@ -153,16 +145,34 @@ def settings_page():
     # ── Integrations ──────────────────────────────────────────────────
     st.markdown('<div class="vw-section-label">Integrations</div>', unsafe_allow_html=True)
 
-    # ── Claude API ────────────────────────────────────────────────────
+    # ── Integrations status card ────────────────────────────────────
     current_key = database.get_setting(conn, "anthropic_api_key")
-    _api_status = f"...{current_key[-8:]}" if current_key else "Not configured"
-    _api_color = "#10b981" if current_key else "#ef4444"
-    st.markdown(
-        f'<div style="background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:8px;">'
-        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-        f'<div style="font-size:13px;font-weight:600;color:#1a1a2e;">Claude API</div>'
-        f'<div style="font-size:12px;color:{_api_color};font-weight:500;">{_api_status}</div>'
-        f'</div></div>', unsafe_allow_html=True)
+    _api_badge = f'<div class="vw-settings-badge vw-badge-ok">...{current_key[-8:]}</div>' if current_key else '<div class="vw-settings-badge vw-badge-off">Not set</div>'
+
+    _tg_token = database.get_setting(conn, "telegram_bot_token")
+    _tg_chat = database.get_setting(conn, "telegram_chat_id")
+    _tg_badge = '<div class="vw-settings-badge vw-badge-ok">Connected</div>' if (_tg_token and _tg_chat) else '<div class="vw-settings-badge vw-badge-off">Not set</div>'
+
+    try:
+        import monarch_sync as _mm_check
+        _mm_on = database.get_setting(conn, "monarch_enabled", "0") == "1"
+        _mm_stats_q = _mm_check.get_sync_stats(conn)
+        if _mm_on and _mm_stats_q.get("last_sync"):
+            _mm_badge = f'<div class="vw-settings-badge vw-badge-ok">{_mm_stats_q["transaction_count"]:,} txns</div>'
+        elif _mm_on:
+            _mm_badge = '<div class="vw-settings-badge vw-badge-warn">No sync yet</div>'
+        else:
+            _mm_badge = '<div class="vw-settings-badge vw-badge-off">Not set</div>'
+    except ImportError:
+        _mm_badge = '<div class="vw-settings-badge vw-badge-off">Not available</div>'
+
+    st.markdown('<div class="vw-settings-card">', unsafe_allow_html=True)
+    render_settings_row("🤖", "#f5f3ff", "Claude API", "Smart categorization, insights, reports", _api_badge)
+    render_settings_row("👑", "#fef3c7", "Monarch Money", "Auto-sync bank transactions", _mm_badge)
+    render_settings_row("📱", "#dbeafe", "Telegram", "Weekly reports + alerts", _tg_badge)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Claude API ────────────────────────────────────────────────────
 
     with st.expander("Claude API Settings", expanded=False):
         if current_key:
@@ -214,18 +224,6 @@ def settings_page():
         else:
             st.warning("Set your API key above first.")
 
-    # Telegram card row
-    _tg_token = database.get_setting(conn, "telegram_bot_token")
-    _tg_chat = database.get_setting(conn, "telegram_chat_id")
-    _tg_status = "Connected" if (_tg_token and _tg_chat) else "Not configured"
-    _tg_color = "#10b981" if (_tg_token and _tg_chat) else "#ef4444"
-    st.markdown(
-        f'<div style="background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:8px;">'
-        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-        f'<div style="font-size:13px;font-weight:600;color:#1a1a2e;">Telegram</div>'
-        f'<div style="font-size:12px;color:{_tg_color};font-weight:500;">{_tg_status}</div>'
-        f'</div></div>', unsafe_allow_html=True)
-
     with st.expander("Telegram Bot Setup", expanded=False):
         st.markdown("""
         1. Open Telegram, search **@BotFather**, send `/newbot`
@@ -266,40 +264,12 @@ def settings_page():
     try:
         import monarch_sync
     except ImportError:
-        st.info("Monarch Money integration requires `curl_cffi`. Install it locally to use this feature.")
         monarch_sync = None
 
     _mm_enabled = False
-    _mm_status_text = "Not configured"
-    _mm_status_color = "#ef4444"
     if monarch_sync:
         _mm_enabled = database.get_setting(conn, "monarch_enabled", "0") == "1"
         _mm_stats = monarch_sync.get_sync_stats(conn)
-
-        if _mm_enabled and _mm_stats["last_sync"]:
-            try:
-                _sync_dt = datetime.fromisoformat(_mm_stats["last_sync"])
-                _sync_delta = datetime.now() - _sync_dt
-                if _sync_delta.days > 0:
-                    _sync_ago = f"{_sync_delta.days}d ago"
-                elif _sync_delta.seconds >= 3600:
-                    _sync_ago = f"{_sync_delta.seconds // 3600}h ago"
-                else:
-                    _sync_ago = f"{_sync_delta.seconds // 60}m ago"
-            except (ValueError, TypeError):
-                _sync_ago = "unknown"
-            _mm_status_text = f"{_mm_stats['transaction_count']:,} txns (last: {_sync_ago})"
-            _mm_status_color = "#10b981"
-        elif _mm_enabled:
-            _mm_status_text = "Connected — no sync yet"
-            _mm_status_color = "#f59e0b"
-
-    st.markdown(
-        f'<div style="background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-bottom:8px;">'
-        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-        f'<div style="font-size:13px;font-weight:600;color:#1a1a2e;">Monarch Money</div>'
-        f'<div style="font-size:12px;color:{_mm_status_color};font-weight:500;">{_mm_status_text}</div>'
-        f'</div></div>', unsafe_allow_html=True)
 
     if monarch_sync:
         with st.expander("Credentials", expanded=not _mm_enabled):
@@ -777,25 +747,22 @@ def settings_page():
     st.markdown('<div class="vw-section-label">Database</div>', unsafe_allow_html=True)
     txn_count = database.get_transaction_count(conn)
     stmts = database.get_all_statements(conn)
-    from shared.state import DB_PATH
-    st.write(f"**{txn_count:,}** transactions | **{len(stmts)}** statements | `{DB_PATH}`")
 
-    if stmts:
-        stmt_data = [{"Account": config.ACCOUNTS.get(s["account_id"], {}).get("label", s["account_id"]),
-                      "Period": f"{s['period_start']} — {s['period_end']}",
-                      "Txns": s["transaction_count"], "File": s["filename"]} for s in stmts]
-        st.dataframe(pd.DataFrame(stmt_data), width="stretch", hide_index=True)
-
-    st.divider()
-
-    # ── 10. API Usage ─────────────────────────────────────────────────
+    _api_cost = 0
     advisor = get_advisor()
     if advisor:
-        st.markdown("#### API Usage (this session)")
-        usage = advisor.get_usage()
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Input Tokens", f"{usage['total_input_tokens']:,}")
-        c2.metric("Output Tokens", f"{usage['total_output_tokens']:,}")
-        c3.metric("Cost", f"${usage['estimated_cost']:.4f}")
+        try:
+            _api_cost = advisor.get_usage().get("estimated_cost", 0)
+        except Exception:
+            pass
+
+    render_db_stats(txn_count, len(stmts), _api_cost)
+
+    if stmts:
+        with st.expander("Statement History"):
+            stmt_data = [{"Account": config.ACCOUNTS.get(s["account_id"], {}).get("label", s["account_id"]),
+                          "Period": f"{s['period_start']} — {s['period_end']}",
+                          "Txns": s["transaction_count"], "File": s["filename"]} for s in stmts]
+            st.dataframe(pd.DataFrame(stmt_data), width="stretch", hide_index=True)
 
     conn.close()

@@ -195,6 +195,79 @@ def gather_report_data(conn, report_date: Optional[date] = None, period: str = "
         except Exception:
             pass
 
+    # ── Category deviations vs 6-month average (home tab philosophy) ──
+    cat_deviations = []
+    for cat_data in mtd_breakdown:
+        cat = cat_data.get("category", "")
+        if cat in _non_flex:
+            continue
+        spent = abs(cat_data.get("total", 0))
+        trend = trends.get(cat)
+        if not trend or spent < 10:
+            continue
+        mean = trend.get("mean", 0) if isinstance(trend, dict) else getattr(trend, "mean", 0)
+        if mean > 0:
+            dev = spent - mean
+            pct = (dev / mean) * 100
+            cat_deviations.append({"category": cat, "spent": spent, "avg": mean, "dev": dev, "pct": pct})
+    cat_deviations.sort(key=lambda x: x["dev"], reverse=True)
+    over_avg = [c for c in cat_deviations if c["dev"] > 0][:3]
+    under_avg = [c for c in cat_deviations if c["dev"] < 0][:3]
+
+    # ── Heaviest flex week with top category drivers ──────────────
+    heaviest_week = None
+    if weekly_breakdown:
+        _hw = max(weekly_breakdown, key=lambda w: abs(w.get("total", 0)))
+        if abs(_hw.get("total", 0)) > 0:
+            _hw_start = _hw.get("start", "")
+            _hw_end = _hw.get("end", "")
+            # Get top categories that drove this week
+            _hw_drivers = []
+            try:
+                _flex_cat_list = list(_flex_cats)
+                _flex_ph = ",".join("?" for _ in _flex_cat_list)
+                _hw_rows = conn.execute(
+                    f"SELECT category, SUM(ABS(amount)) as total FROM transactions "
+                    f"WHERE date >= ? AND date <= ? AND amount < 0 "
+                    f"AND category IN ({_flex_ph}) GROUP BY category ORDER BY total DESC LIMIT 3",
+                    [_hw_start, _hw_end] + _flex_cat_list,
+                ).fetchall()
+                _hw_drivers = [{"category": r["category"], "total": r["total"]} for r in _hw_rows]
+            except Exception:
+                pass
+            heaviest_week = {
+                "week_num": _hw.get("week_num", 0),
+                "start": _hw_start,
+                "end": _hw_end,
+                "total": abs(_hw.get("total", 0)),
+                "drivers": _hw_drivers,
+            }
+
+    # ── 6-month savings trend (for end phase scorecard) ───────────
+    savings_trend_6m = []
+    try:
+        _monthly_flex = database.get_monthly_flex_totals(conn, months=7)
+        _monthly_flex_map = {r["month"]: r["flex_total"] for r in _monthly_flex}
+        # Get available months
+        _avail = conn.execute(
+            "SELECT DISTINCT strftime('%Y-%m', date) as m FROM transactions ORDER BY m DESC LIMIT 7"
+        ).fetchall()
+        _avail_months = [r["m"] for r in _avail]
+        for _ym in _avail_months[:6]:
+            _sy, _sm = int(_ym.split("-")[0]), int(_ym.split("-")[1])
+            _inc = models.get_income_for_month(_sy, _sm)
+            _mo_inc = _inc["total_income"] if isinstance(_inc, dict) else _inc
+            if not _bonus1_on:
+                _mo_inc -= (_inc.get("kero_bonus", 0) if isinstance(_inc, dict) else 0)
+            if not _bonus2_on:
+                _mo_inc -= (_inc.get("maggie_bonus", 0) if isinstance(_inc, dict) else 0)
+            _mo_flex = _monthly_flex_map.get(_ym, 0)
+            _mo_saved = _mo_inc - effective_fixed - _mo_flex
+            savings_trend_6m.append({"month": _ym, "saved": _mo_saved, "hit": _mo_saved >= savings_target_val})
+        savings_trend_6m.reverse()  # oldest first
+    except Exception:
+        pass
+
     return {
         "report_date": today.isoformat(),
         "week_start": week_ago.isoformat(),
@@ -231,6 +304,11 @@ def gather_report_data(conn, report_date: Optional[date] = None, period: str = "
         "weekly_breakdown": weekly_breakdown,
         "week_merchants": week_merchants,
         "last_month_overbudget": last_month_overbudget,
+        # Home-tab-inspired data
+        "over_avg": over_avg,
+        "under_avg": under_avg,
+        "heaviest_week": heaviest_week,
+        "savings_trend_6m": savings_trend_6m,
     }
 
 

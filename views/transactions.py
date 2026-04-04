@@ -19,7 +19,10 @@ import database
 import models
 import pdf_parser
 from shared.charts import CHART_LAYOUT, CATEGORY_PALETTE
-from shared.components import render_dark_summary, render_txn_group, get_category_icon
+from shared.components import (
+    render_dark_summary, render_txn_group, render_txn_group_v2,
+    render_txn_summary, render_txn_quick_stats, get_category_icon,
+)
 from shared.state import get_conn, get_advisor, normalize_date, normalize_transactions
 
 # ── Spending-type classification (shared across the page) ─────────────
@@ -51,14 +54,8 @@ _TAG_PILLS = {
 }
 
 
-def transactions_page():
-    st.markdown('<div style="font-size:1.4rem;font-weight:700;color:var(--vw-text);margin-bottom:4px;">Transactions</div>', unsafe_allow_html=True)
-    conn = get_conn()
-    _init_category_sets(conn)
-    txn_count = database.get_transaction_count(conn)
-
-    # ── Upload Statements (always visible at top) ─────────────────────
-    st.markdown("#### Upload Statements")
+def _upload_section(conn, coverage):
+    """Upload statements logic — extracted so it can live in an expander."""
     coverage = database.get_account_coverage(conn)
     if coverage:
         all_months_covered = set()
@@ -341,284 +338,299 @@ def transactions_page():
     # If no transactions, stop
     txn_count = database.get_transaction_count(conn)
     if txn_count == 0:
-        st.info("No transactions yet. Upload a statement above to get started.")
+        st.info("No transactions yet. Upload a statement below to get started.")
+        with st.expander("📤 Upload Statements", expanded=True):
+            _upload_section(conn, None)
         conn.close()
         st.stop()
 
-    st.divider()
-    active_categories = category_engine.get_active_categories(conn)
 
-    # Only 2 tabs now (Recategorize moved to Settings)
-    tab_txns, tab_analysis = st.tabs(["Transactions", "Category Analysis"])
+def _category_analysis_section(conn, hide_transfers):
+    """Category Analysis — extracted for the bottom expander."""
+    cat_stats = category_engine.get_category_stats(conn)
+    sc1, sc2, sc3 = st.columns(3)
+    sc1.metric("Category Coverage", f"{cat_stats['coverage_pct']}%")
+    sc2.metric("Uncategorized (Other)", f"{cat_stats['other_count']} txns ({cat_stats['other_pct']}%)")
+    sc3.metric("Low Confidence", f"{cat_stats['low_confidence_count']} txns ({cat_stats['low_confidence_pct']}%)")
 
-    # ── Tab 1: Transaction Browser ──────────────────────────────────────
-    with tab_txns:
-        _search_q = st.text_input("\U0001f50d Search transactions", placeholder="Search merchants, categories...", label_visibility="collapsed")
+    _active_cats = category_engine.get_active_categories(conn)
+    if hide_transfers:
+        _active_cats = [c for c in _active_cats if c not in _muted_cats]
+    _active_placeholder = ",".join(f"'{c}'" for c in _active_cats)
 
-        date_range = database.get_date_range(conn)
-        _fc1, _fc2 = st.columns(2)
-        with _fc1:
-            start = st.date_input("From", value=date.fromisoformat(date_range[0]) if date_range[0] else date.today() - timedelta(days=90))
-        with _fc2:
-            end = st.date_input("To", value=date.fromisoformat(date_range[1]) if date_range[1] else date.today())
-        _fc3, _fc4 = st.columns(2)
-        with _fc3:
-            acct = st.selectbox("Account", ["All"] + list(config.ACCOUNTS.keys()))
-        with _fc4:
-            cat = st.selectbox("Category", ["All"] + active_categories)
+    st.markdown("#### Category Distribution")
+    cat_rows = conn.execute(f"""
+        SELECT category, COUNT(*) as txn_count, ABS(SUM(amount)) as total_spend
+        FROM transactions WHERE amount < 0 AND category IN ({_active_placeholder})
+        GROUP BY category ORDER BY total_spend DESC
+    """).fetchall()
 
-        # FIX 2: Use MUTED_CATEGORIES from config instead of hardcoded set
-        hide_transfers = st.checkbox("Hide transfers & CC payments", value=True)
-
-        txns = database.get_transactions(
-            conn, start_date=start.isoformat(), end_date=end.isoformat(),
-            account_id=acct if acct != "All" else None,
-            category=cat if cat != "All" else None,
+    if cat_rows:
+        cat_df = pd.DataFrame([dict(r) for r in cat_rows])
+        fig_tree = px.treemap(
+            cat_df, path=["category"], values="total_spend",
+            color="total_spend", color_continuous_scale="Blues",
+            hover_data={"txn_count": True, "total_spend": ":.2f"},
         )
-        if txns:
-            df = pd.DataFrame([dict(t) for t in txns])
+        fig_tree.update_layout(**CHART_LAYOUT, height=450, coloraxis_showscale=False)
+        fig_tree.update_traces(
+            textinfo="label+value",
+            texttemplate="%{label}<br>$%{value:,.0f}",
+            hovertemplate="<b>%{label}</b><br>Spend: $%{value:,.0f}<br>Transactions: %{customdata[0]}<extra></extra>",
+        )
+        st.plotly_chart(fig_tree, width="stretch", config={"displayModeBar": False})
 
-            # FIX 1: Add spending-type Tag column
-            df["tag"] = df["category"].apply(_get_tag)
+    st.markdown("#### Category Trends Over Time")
+    monthly_cat_rows = conn.execute(f"""
+        SELECT strftime('%Y-%m', date) as month, category, ABS(SUM(amount)) as total
+        FROM transactions WHERE amount < 0 AND category IN ({_active_placeholder})
+        GROUP BY month, category ORDER BY month
+    """).fetchall()
 
-            # FIX 2: Filter transfers + CC payments + muted categories
-            if hide_transfers and cat == "All":
-                _hide_cats = config.EXCLUDED_CATEGORIES | set(_muted_cats)
-                df = df[~df["category"].isin(_hide_cats)]
+    if monthly_cat_rows:
+        mc_df = pd.DataFrame([dict(r) for r in monthly_cat_rows])
+        top_cats = mc_df.groupby("category")["total"].sum().nlargest(10).index.tolist()
+        mc_df["category_display"] = mc_df["category"].apply(lambda x: x if x in top_cats else "Other (small)")
+        mc_agg = mc_df.groupby(["month", "category_display"])["total"].sum().reset_index()
 
-            # Search filter
-            if _search_q:
-                df = df[df["description"].str.contains(_search_q, case=False, na=False) |
-                        df["category"].str.contains(_search_q, case=False, na=False)]
+        fig_area = px.area(
+            mc_agg, x="month", y="total", color="category_display",
+            color_discrete_sequence=CATEGORY_PALETTE,
+            labels={"month": "Month", "total": "Spend", "category_display": "Category"},
+        )
+        fig_area.update_layout(
+            **CHART_LAYOUT, height=400,
+            xaxis_title=None, yaxis_title="Monthly Spend",
+            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+        )
+        st.plotly_chart(fig_area, width="stretch", config={"displayModeBar": False})
+    else:
+        st.info("Not enough data for trend analysis.")
 
-            # FIX 3: Monthly spending summary vs lifetime totals
-            _from_mo = start.strftime("%Y-%m")
-            _to_mo = end.strftime("%Y-%m")
-            _single_month = (_from_mo == _to_mo)
 
-            if _single_month:
-                savings_target = int(database.get_setting(conn, "monthly_savings_target", "2000"))
-                _flex_total = abs(df[(df["amount"] < 0) & (~df["category"].isin(_fixed_cats)) & (~df["category"].isin(_muted_cats))]["amount"].sum())
+def transactions_page():
+    conn = get_conn()
+    _init_category_sets(conn)
+    txn_count = database.get_transaction_count(conn)
+    coverage = database.get_account_coverage(conn)
 
-                # Use models.get_income_for_month for consistency with dashboard
-                _inc = models.get_income_for_month(start.year, start.month)
-                _txn_page_income = _inc["total_income"] - _inc.get("kero_bonus", 0) - _inc.get("maggie_bonus", 0)
-                _spending_money = _txn_page_income - sum(config.FIXED_MONTHLY_EXPENSES.values()) - savings_target
+    if txn_count == 0:
+        st.info("No transactions yet. Upload a statement below to get started.")
+        with st.expander("📤 Upload Statements", expanded=True):
+            _upload_section(conn, coverage)
+        conn.close()
+        st.stop()
 
-                _days_in = _monthrange(start.year, start.month)[1]
-                _days_remaining = max(_days_in - date.today().day, 0) if start.month == date.today().month and start.year == date.today().year else 0
-                render_dark_summary("Flex Spending", _flex_total, max(_spending_money - _flex_total, 0), _spending_money, len(df), _days_remaining)
+    # ══════════════════════════════════════════════════════════════════
+    # 1. FILTERS (compact row)
+    # ══════════════════════════════════════════════════════════════════
+    active_categories = category_engine.get_active_categories(conn)
+    date_range = database.get_date_range(conn)
+
+    _search_q = st.text_input("🔍 Search transactions", placeholder="Search merchants, categories...", label_visibility="collapsed")
+
+    _fc1, _fc2, _fc3, _fc4 = st.columns([2, 2, 2, 1.5])
+    with _fc1:
+        start = st.date_input("From", value=date.fromisoformat(date_range[0]) if date_range[0] else date.today() - timedelta(days=90), label_visibility="collapsed")
+    with _fc2:
+        end = st.date_input("To", value=date.fromisoformat(date_range[1]) if date_range[1] else date.today(), label_visibility="collapsed")
+    with _fc3:
+        _acct_options = ["All Accounts"] + [config.ACCOUNTS.get(a, {}).get("label", a) for a in config.ACCOUNTS]
+        _acct_keys = ["All"] + list(config.ACCOUNTS.keys())
+        _acct_idx = st.selectbox("Account", range(len(_acct_options)), format_func=lambda i: _acct_options[i], label_visibility="collapsed")
+        acct = _acct_keys[_acct_idx]
+    with _fc4:
+        hide_transfers = st.checkbox("Hide transfers", value=True)
+
+    _cat_options = ["All Categories"] + active_categories
+    cat = st.selectbox("Category", _cat_options, label_visibility="collapsed")
+    if cat == "All Categories":
+        cat = "All"
+
+    # ══════════════════════════════════════════════════════════════════
+    # 2. FETCH & FILTER DATA
+    # ══════════════════════════════════════════════════════════════════
+    txns = database.get_transactions(
+        conn, start_date=start.isoformat(), end_date=end.isoformat(),
+        account_id=acct if acct != "All" else None,
+        category=cat if cat != "All" else None,
+    )
+
+    if not txns:
+        st.info("No transactions match these filters.")
+        # Still show upload + analysis at bottom
+        with st.expander("📤 Upload Statements"):
+            _upload_section(conn, coverage)
+        with st.expander("📊 Category Analysis"):
+            _category_analysis_section(conn, hide_transfers)
+        conn.close()
+        return
+
+    df = pd.DataFrame([dict(t) for t in txns])
+    df["tag"] = df["category"].apply(_get_tag)
+
+    if hide_transfers and cat == "All":
+        _hide_cats = config.EXCLUDED_CATEGORIES | set(_muted_cats)
+        df = df[~df["category"].isin(_hide_cats)]
+
+    if _search_q:
+        df = df[df["description"].str.contains(_search_q, case=False, na=False) |
+                df["category"].str.contains(_search_q, case=False, na=False)]
+
+    if df.empty:
+        st.info("No transactions match these filters.")
+        conn.close()
+        return
+
+    # ══════════════════════════════════════════════════════════════════
+    # 3. SPENDING SUMMARY HERO
+    # ══════════════════════════════════════════════════════════════════
+    _spending_df = df[df["amount"] < 0]
+    _total_spent = abs(_spending_df["amount"].sum()) if not _spending_df.empty else 0
+    _txn_count = len(df)
+
+    _from_mo = start.strftime("%Y-%m")
+    _to_mo = end.strftime("%Y-%m")
+    _single_month = (_from_mo == _to_mo)
+
+    if _single_month:
+        from calendar import month_name
+        _month_label = f"{month_name[start.month]} {start.year}"
+    else:
+        _month_label = f"{start.strftime('%b %d')} – {end.strftime('%b %d, %Y')}"
+
+    # Category breakdown for the bar
+    _cat_totals = {}
+    if not _spending_df.empty:
+        _cat_totals = _spending_df.groupby("category")["amount"].sum().abs().sort_values(ascending=False).to_dict()
+
+    render_txn_summary(_month_label, _txn_count, _total_spent, _cat_totals)
+
+    # ══════════════════════════════════════════════════════════════════
+    # 4. QUICK STATS
+    # ══════════════════════════════════════════════════════════════════
+    _days_range = max((end - start).days, 1)
+    _avg_per_day = _total_spent / _days_range if _total_spent > 0 else 0
+    _largest = abs(_spending_df["amount"].min()) if not _spending_df.empty else 0
+
+    _flex_remaining = 0
+    if _single_month:
+        savings_target = int(database.get_setting(conn, "monthly_savings_target", "2000"))
+        _flex_total = abs(df[(df["amount"] < 0) & (~df["category"].isin(_fixed_cats)) & (~df["category"].isin(_muted_cats))]["amount"].sum())
+        _inc = models.get_income_for_month(start.year, start.month)
+        _txn_page_income = _inc["total_income"] - _inc.get("kero_bonus", 0) - _inc.get("maggie_bonus", 0)
+        _spending_money = _txn_page_income - sum(config.FIXED_MONTHLY_EXPENSES.values()) - savings_target
+        _flex_remaining = _spending_money - _flex_total
+
+    render_txn_quick_stats(_avg_per_day, _largest, _flex_remaining)
+
+    # ══════════════════════════════════════════════════════════════════
+    # 5. TRANSACTION GROUPS (V2 cards)
+    # ══════════════════════════════════════════════════════════════════
+    df_sorted = df.sort_values("date", ascending=False)
+    _grouped = df_sorted.groupby("date", sort=False)
+
+    def _build_txn_rows(group):
+        rows = []
+        for _, row in group.iterrows():
+            _icon, _bg = get_category_icon(row["category"])
+            _acct_label = config.ACCOUNTS.get(row.get("account_id", ""), {}).get("label", row.get("account_id", ""))
+            rows.append({
+                "icon": _icon, "bg_color": _bg,
+                "name": str(row["description"])[:40],
+                "category": row["category"],
+                "account": _acct_label,
+                "amount": row["amount"],
+                "tag": row.get("tag", "flex"),
+            })
+        return rows
+
+    def _format_date_label(date_str):
+        try:
+            _dt = date.fromisoformat(str(date_str))
+            if _dt == date.today():
+                return f"Today · {_dt.strftime('%b %d')}"
+            elif _dt == date.today() - timedelta(days=1):
+                return f"Yesterday · {_dt.strftime('%b %d')}"
             else:
-                _total_spent = abs(df[df['amount'] < 0]['amount'].sum())
-                render_dark_summary("Total Spending", _total_spent, 0, _total_spent, len(df), 0)
+                return f"{_dt.strftime('%a')} · {_dt.strftime('%b %d')}"
+        except Exception:
+            return str(date_str).upper()
 
-            # Group transactions by date for card display
-            df_sorted = df.sort_values("date", ascending=False)
-            _grouped = df_sorted.groupby("date", sort=False)
+    _group_count = 0
+    for _date_str, _group in _grouped:
+        if _group_count >= 30:
+            break
+        _date_label = _format_date_label(_date_str)
+        _daily_total = _group[_group["amount"] < 0]["amount"].sum()
+        _txn_rows = _build_txn_rows(_group)
+        render_txn_group_v2(_date_label, _daily_total, _txn_rows)
+        _group_count += 1
 
-            _group_count = 0
+    _remaining = len(_grouped) - 30
+    if _remaining > 0:
+        if st.button(f"Show {_remaining} more date groups"):
+            _extra_count = 0
             for _date_str, _group in _grouped:
-                if _group_count >= 30:
-                    break
-
-                # Format date label
-                try:
-                    _dt = date.fromisoformat(str(_date_str))
-                    if _dt == date.today():
-                        _date_label = "TODAY"
-                    elif _dt == date.today() - timedelta(days=1):
-                        _date_label = "YESTERDAY"
-                    else:
-                        _date_label = _dt.strftime("%b %d").upper()
-                except Exception:
-                    _date_label = str(_date_str).upper()
-
+                _extra_count += 1
+                if _extra_count <= 30:
+                    continue
+                _date_label = _format_date_label(_date_str)
                 _daily_total = _group[_group["amount"] < 0]["amount"].sum()
+                _txn_rows = _build_txn_rows(_group)
+                render_txn_group_v2(_date_label, _daily_total, _txn_rows)
 
-                # Build transaction rows
-                _txn_rows = []
-                for _, row in _group.iterrows():
-                    _icon, _bg = get_category_icon(row["category"])
-                    _acct_label = config.ACCOUNTS.get(row.get("account_id", ""), {}).get("label", row.get("account_id", ""))
-                    _txn_rows.append({
-                        "icon": _icon,
-                        "bg_color": _bg,
-                        "name": str(row["description"])[:40],
-                        "category": row["category"],
-                        "account": _acct_label,
-                        "amount": row["amount"],
-                    })
+    # ══════════════════════════════════════════════════════════════════
+    # 6. DATA QUALITY CHECKS
+    # ══════════════════════════════════════════════════════════════════
+    _merchant_cats = defaultdict(set)
+    for _, row in df[df["amount"] < 0].iterrows():
+        _clean = row["description"].split("*")[0].split("#")[0].strip()[:20]
+        _merchant_cats[_clean].add(row["category"])
 
-                render_txn_group(_date_label, _daily_total, _txn_rows)
-                _group_count += 1
+    _multi_cat = {m: cats for m, cats in _merchant_cats.items() if len(cats) > 1}
+    if _multi_cat:
+        with st.expander(f"⚠️ {len(_multi_cat)} merchants in multiple categories"):
+            for _merchant, _cats in sorted(_multi_cat.items()):
+                st.markdown(f'**{_merchant}** → {", ".join(sorted(_cats))}')
+            st.caption("These merchants are split across categories. Use 'Recategorize with Claude' to clean them up.")
 
-            if _group_count >= 30 and len(_grouped) > 30:
-                if st.button("Show more transactions"):
-                    # Re-render all remaining groups
-                    _extra_count = 0
-                    for _date_str, _group in _grouped:
-                        _extra_count += 1
-                        if _extra_count <= 30:
-                            continue
-                        try:
-                            _dt = date.fromisoformat(str(_date_str))
-                            if _dt == date.today():
-                                _date_label = "TODAY"
-                            elif _dt == date.today() - timedelta(days=1):
-                                _date_label = "YESTERDAY"
-                            else:
-                                _date_label = _dt.strftime("%b %d").upper()
-                        except Exception:
-                            _date_label = str(_date_str).upper()
-                        _daily_total = _group[_group["amount"] < 0]["amount"].sum()
-                        _txn_rows = []
-                        for _, row in _group.iterrows():
-                            _icon, _bg = get_category_icon(row["category"])
-                            _acct_label = config.ACCOUNTS.get(row.get("account_id", ""), {}).get("label", row.get("account_id", ""))
-                            _txn_rows.append({
-                                "icon": _icon, "bg_color": _bg,
-                                "name": str(row["description"])[:40],
-                                "category": row["category"], "account": _acct_label,
-                                "amount": row["amount"],
-                            })
-                        render_txn_group(_date_label, _daily_total, _txn_rows)
-
-            # FIX 4: Flag merchants in multiple categories
-            _merchant_cats = defaultdict(set)
-            for _, row in df[df["amount"] < 0].iterrows():
-                _clean = row["description"].split("*")[0].split("#")[0].strip()[:20]
-                _merchant_cats[_clean].add(row["category"])
-
-            _multi_cat = {m: cats for m, cats in _merchant_cats.items() if len(cats) > 1}
-            if _multi_cat:
-                with st.expander(f"⚠️ {len(_multi_cat)} merchants in multiple categories"):
-                    for _merchant, _cats in sorted(_multi_cat.items()):
-                        st.markdown(f'**{_merchant}** → {", ".join(sorted(_cats))}')
-                    st.caption(
-                        "These merchants are split across categories. "
-                        "Use 'Recategorize with Claude' to clean them up."
-                    )
-
-            # FIX 5: Detect possible fixed bills not in config
-            try:
-                _recurring = conn.execute("""
-                    SELECT description, category,
-                           COUNT(DISTINCT strftime('%Y-%m', date)) as months,
-                           ROUND(AVG(ABS(amount)), 2) as avg_amount
-                    FROM transactions
-                    WHERE amount < 0
-                      AND date >= date('now', '-6 months')
-                    GROUP BY description, category
-                    HAVING months >= 4 AND avg_amount > 50
-                    ORDER BY avg_amount DESC
-                """).fetchall()
-
-                _not_in_fixed = [
-                    r for r in _recurring
-                    if r["category"] not in _fixed_cats
-                    and r["category"] not in _muted_cats
-                ]
-
-                if _not_in_fixed:
-                    with st.expander(f"📋 {len(_not_in_fixed)} possible fixed bills not configured"):
-                        for r in _not_in_fixed[:10]:
-                            st.markdown(
-                                f'**{r["description"][:30]}** — ${r["avg_amount"]:,.0f}/mo '
-                                f'({r["months"]} months) — {r["category"]}'
-                            )
-                        st.caption(
-                            "These merchants appear monthly with consistent amounts. "
-                            "Consider adding them to Fixed Monthly Bills in Setup."
-                        )
-            except Exception:
-                pass  # non-critical feature
-
-            csv_data = df.to_csv(index=False)
-            st.download_button("Export CSV", csv_data, "transactions.csv", "text/csv")
-
-            # V5 Coverage status badge at bottom
-            if coverage:
-                _total_cells_b = 0
-                _filled_cells_b = 0
-                for info in coverage.values():
-                    _mc = info.get("months_covered", [])
-                    _total_cells_b += max(len(_mc), 1)
-                    _filled_cells_b += len(_mc)
-                _cov_pct = (_filled_cells_b / max(_total_cells_b, 1) * 100)
-                _missing = database.get_missing_months(conn)
-                _miss_count = len(_missing) if _missing else 0
-                _miss_text = f" &bull; {_miss_count} missing statement{'s' if _miss_count != 1 else ''}" if _miss_count > 0 else ""
-                st.markdown(
-                    f'<div style="display:flex;align-items:center;justify-content:center;gap:6px;padding:8px;margin-top:4px;">'
-                    f'<div style="width:6px;height:6px;border-radius:50%;background:{"#22c55e" if _cov_pct >= 80 else "#f59e0b"};"></div>'
-                    f'<span style="font-size:11px;color:#6b7280;">{_cov_pct:.0f}% coverage{_miss_text}</span>'
-                    f'</div>', unsafe_allow_html=True)
-        else:
-            st.info("No transactions match these filters.")
-
-    # ── Tab 2: Category Analysis ────────────────────────────────────────
-    with tab_analysis:
-        cat_stats = category_engine.get_category_stats(conn)
-        sc1, sc2, sc3 = st.columns(3)
-        sc1.metric("Category Coverage", f"{cat_stats['coverage_pct']}%")
-        sc2.metric("Uncategorized (Other)", f"{cat_stats['other_count']} txns ({cat_stats['other_pct']}%)")
-        sc3.metric("Low Confidence", f"{cat_stats['low_confidence_count']} txns ({cat_stats['low_confidence_pct']}%)")
-
-        st.markdown(f"**{cat_stats['coverage_pct']}%** of spending transactions are categorized. "
-                    f"**{cat_stats['other_count']}** transactions remain as 'Other'.")
-
-        # FIX 6: Build active categories, respecting the hide-transfers filter
-        st.markdown("#### Category Distribution")
-        _active_cats = category_engine.get_active_categories(conn)
-        if hide_transfers:
-            _active_cats = [c for c in _active_cats if c not in _muted_cats]
-        _active_placeholder = ",".join(f"'{c}'" for c in _active_cats)
-        cat_rows = conn.execute(f"""
-            SELECT category, COUNT(*) as txn_count, ABS(SUM(amount)) as total_spend
-            FROM transactions WHERE amount < 0 AND category IN ({_active_placeholder})
-            GROUP BY category ORDER BY total_spend DESC
+    try:
+        _recurring = conn.execute("""
+            SELECT description, category,
+                   COUNT(DISTINCT strftime('%Y-%m', date)) as months,
+                   ROUND(AVG(ABS(amount)), 2) as avg_amount
+            FROM transactions
+            WHERE amount < 0 AND date >= date('now', '-6 months')
+            GROUP BY description, category
+            HAVING months >= 4 AND avg_amount > 50
+            ORDER BY avg_amount DESC
         """).fetchall()
+        _not_in_fixed = [r for r in _recurring if r["category"] not in _fixed_cats and r["category"] not in _muted_cats]
+        if _not_in_fixed:
+            with st.expander(f"📋 {len(_not_in_fixed)} possible fixed bills not configured"):
+                for r in _not_in_fixed[:10]:
+                    st.markdown(f'**{r["description"][:30]}** — ${r["avg_amount"]:,.0f}/mo ({r["months"]} months) — {r["category"]}')
+                st.caption("Consider adding them to Fixed Monthly Bills in Setup.")
+    except Exception:
+        pass
 
-        if cat_rows:
-            cat_df = pd.DataFrame([dict(r) for r in cat_rows])
-            fig_tree = px.treemap(
-                cat_df, path=["category"], values="total_spend",
-                color="total_spend", color_continuous_scale="Blues",
-                hover_data={"txn_count": True, "total_spend": ":.2f"},
-            )
-            fig_tree.update_layout(**CHART_LAYOUT, height=450, coloraxis_showscale=False)
-            fig_tree.update_traces(
-                textinfo="label+value",
-                texttemplate="%{label}<br>$%{value:,.0f}",
-                hovertemplate="<b>%{label}</b><br>Spend: $%{value:,.0f}<br>Transactions: %{customdata[0]}<extra></extra>",
-            )
-            st.plotly_chart(fig_tree, width="stretch", config={"displayModeBar": False})
+    # ══════════════════════════════════════════════════════════════════
+    # 7. EXPORT
+    # ══════════════════════════════════════════════════════════════════
+    csv_data = df.to_csv(index=False)
+    st.download_button("📥 Export CSV", csv_data, "transactions.csv", "text/csv")
 
-        st.markdown("#### Category Trends Over Time")
-        monthly_cat_rows = conn.execute(f"""
-            SELECT strftime('%Y-%m', date) as month, category, ABS(SUM(amount)) as total
-            FROM transactions WHERE amount < 0 AND category IN ({_active_placeholder})
-            GROUP BY month, category ORDER BY month
-        """).fetchall()
+    # ══════════════════════════════════════════════════════════════════
+    # 8. UPLOAD STATEMENTS (bottom expander)
+    # ══════════════════════════════════════════════════════════════════
+    with st.expander("📤 Upload Statements"):
+        _upload_section(conn, coverage)
 
-        if monthly_cat_rows:
-            mc_df = pd.DataFrame([dict(r) for r in monthly_cat_rows])
-            top_cats = mc_df.groupby("category")["total"].sum().nlargest(10).index.tolist()
-            mc_df["category_display"] = mc_df["category"].apply(lambda x: x if x in top_cats else "Other (small)")
-            mc_agg = mc_df.groupby(["month", "category_display"])["total"].sum().reset_index()
-
-            fig_area = px.area(
-                mc_agg, x="month", y="total", color="category_display",
-                color_discrete_sequence=CATEGORY_PALETTE,
-                labels={"month": "Month", "total": "Spend", "category_display": "Category"},
-            )
-            fig_area.update_layout(
-                **CHART_LAYOUT, height=400,
-                xaxis_title=None, yaxis_title="Monthly Spend",
-                legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-            )
-            st.plotly_chart(fig_area, width="stretch", config={"displayModeBar": False})
-        else:
-            st.info("Not enough data for trend analysis.")
+    # ══════════════════════════════════════════════════════════════════
+    # 9. CATEGORY ANALYSIS (bottom expander)
+    # ══════════════════════════════════════════════════════════════════
+    with st.expander("📊 Category Analysis"):
+        _category_analysis_section(conn, hide_transfers)
 
     conn.close()

@@ -829,6 +829,243 @@ def inject_css():
         font-size: 15px; font-weight: 800; color: #0d9488;
     }
 
+    /* ── Transaction summary hero ────────────────────────── */
+    .vw-txn-summary {
+        background: var(--vw-card-bg); border-radius: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--vw-border);
+        padding: 16px; margin-bottom: 14px;
+    }
+    .vw-txn-summary .ts-top {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 12px;
+    }
+    .vw-txn-summary .ts-month-label {
+        font-size: 11px; color: var(--vw-text-faint); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .vw-txn-summary .ts-txn-count { font-size: 16px; font-weight: 700; }
+    .vw-txn-summary .ts-total-label {
+        font-size: 11px; color: var(--vw-text-faint); text-align: right;
+    }
+    .vw-txn-summary .ts-total { font-size: 22px; font-weight: 800; text-align: right; }
+    .vw-txn-breakdown {
+        display: flex; gap: 2px; height: 8px; border-radius: 4px;
+        overflow: hidden; margin-bottom: 8px;
+    }
+    .vw-txn-legend {
+        display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .vw-txn-legend .tl-item {
+        display: flex; align-items: center; gap: 4px;
+        font-size: 11px; color: var(--vw-text-muted);
+    }
+    .vw-txn-legend .tl-dot {
+        width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+
+    /* Transaction quick stats pills */
+    .vw-txn-stats-row { display: flex; gap: 6px; margin-bottom: 14px; }
+    .vw-txn-stat-pill {
+        flex: 1; padding: 10px 8px; border-radius: 12px; text-align: center;
+        background: var(--vw-card-bg); border: 1px solid var(--vw-border);
+    }
+    .vw-txn-stat-pill .tsp-label {
+        font-size: 9px; color: var(--vw-text-faint); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .vw-txn-stat-pill .tsp-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
+
+    /* Spending type tags */
+    .vw-type-tag {
+        display: inline-flex; align-items: center; padding: 1px 6px;
+        border-radius: 4px; font-size: 9px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .vw-tag-flex { background: #eff6ff; color: #3b82f6; }
+    .vw-tag-fixed { background: #f3f4f6; color: #6b7280; }
+    .vw-tag-income { background: #f0fdf4; color: #22c55e; }
+
+    /* Transaction V2 card rows */
+    .vw-txn-card-v2 {
+        background: var(--vw-card-bg); border-radius: 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden;
+        border: 1px solid var(--vw-border);
+    }
+    .vw-txn-row-v2 {
+        display: flex; align-items: center; padding: 12px 14px;
+        border-bottom: 1px solid var(--vw-border-light); gap: 12px;
+    }
+    .vw-txn-row-v2:last-child { border-bottom: none; }
+    .vw-txn-row-v2 .txn-icon-v2 {
+        width: 40px; height: 40px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px; flex-shrink: 0;
+    }
+    .vw-txn-row-v2 .txn-details-v2 { flex: 1; min-width: 0; }
+    .vw-txn-row-v2 .txn-name-v2 {
+        font-size: 14px; font-weight: 500; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+    }
+    .vw-txn-row-v2 .txn-meta-v2 {
+        font-size: 11px; color: var(--vw-text-faint); margin-top: 2px;
+        display: flex; align-items: center; gap: 4px;
+    }
+    .vw-txn-row-v2 .txn-meta-v2 .meta-dot {
+        width: 3px; height: 3px; border-radius: 50%; background: var(--vw-text-faint);
+    }
+    .vw-txn-row-v2 .txn-right-v2 { text-align: right; flex-shrink: 0; }
+    .vw-txn-row-v2 .txn-amount-v2 { font-size: 15px; font-weight: 700; }
+    .vw-txn-row-v2 .txn-account-v2 { font-size: 10px; color: var(--vw-text-faint); margin-top: 2px; }
+
+    /* Date group header */
+    .vw-txn-date-header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 4px 4px 6px;
+    }
+    .vw-txn-date-header .dh-date {
+        font-size: 11px; font-weight: 600; color: var(--vw-text-faint);
+        text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .vw-txn-date-header .dh-total {
+        font-size: 11px; font-weight: 600; color: var(--vw-text-muted);
+    }
+
+    /* ── Categories V2 ─────────────────────────────────── */
+    .vw-cat-card-v2 {
+        background: var(--vw-card-bg); border-radius: 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--vw-border);
+        overflow: hidden; margin-bottom: 10px;
+    }
+    .vw-cat-row-v2 {
+        display: flex; align-items: center; padding: 12px 14px; gap: 12px;
+        border-bottom: 1px solid var(--vw-border-light);
+    }
+    .vw-cat-row-v2:last-child { border-bottom: none; }
+    .vw-cat-row-v2 .cat-icon-v2 {
+        width: 42px; height: 42px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 20px; flex-shrink: 0;
+    }
+    .vw-cat-row-v2 .cat-info-v2 { flex: 1; min-width: 0; }
+    .vw-cat-row-v2 .cat-name-v2 { font-size: 14px; font-weight: 600; }
+    .vw-cat-row-v2 .cat-meta-v2 {
+        font-size: 11px; margin-top: 2px; display: flex; align-items: center; gap: 6px;
+    }
+    .vw-cat-row-v2 .cat-meta-v2 .meta-dot {
+        width: 3px; height: 3px; border-radius: 50%; background: var(--vw-text-faint);
+    }
+    .vw-cat-row-v2 .cat-right-v2 { flex-shrink: 0; text-align: right; }
+    .vw-cat-row-v2 .cat-amount-v2 { font-size: 16px; font-weight: 700; }
+    .vw-cat-row-v2 .cat-progress-v2 {
+        width: 60px; height: 4px; background: var(--vw-progress-bg, #e5e7eb);
+        border-radius: 2px; margin-top: 4px;
+    }
+    .vw-cat-row-v2 .cat-progress-fill-v2 { height: 100%; border-radius: 2px; }
+    .vw-cat-type-pill {
+        display: inline-flex; align-items: center; padding: 2px 8px;
+        border-radius: 10px; font-size: 10px; font-weight: 600;
+    }
+    .vw-pill-fix { background: #f3f4f6; color: #6b7280; }
+    .vw-pill-flex { background: #eff6ff; color: #3b82f6; }
+    .vw-pill-muted { background: #fef2f2; color: #ef4444; }
+
+    /* Allocation hero V2 */
+    .vw-alloc-hero-v2 {
+        background: var(--vw-card-bg); border-radius: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--vw-border);
+        padding: 16px; margin-bottom: 14px;
+    }
+    .vw-alloc-bar-v2 {
+        display: flex; height: 12px; border-radius: 6px;
+        overflow: hidden; margin-bottom: 10px;
+    }
+    .vw-alloc-legend-v2 { display: flex; gap: 16px; }
+    .vw-alloc-legend-v2 .al-item {
+        display: flex; align-items: center; gap: 6px; font-size: 12px;
+    }
+    .vw-alloc-legend-v2 .al-dot {
+        width: 10px; height: 10px; border-radius: 3px;
+    }
+    .vw-alloc-legend-v2 .al-label { color: var(--vw-text-muted); }
+    .vw-alloc-legend-v2 .al-value { font-weight: 700; }
+
+    /* Category section header */
+    .vw-cat-sec-header {
+        display: flex; justify-content: space-between; align-items: center;
+        margin: 18px 0 8px; padding: 0 2px;
+    }
+    .vw-cat-sec-header .csh-left {
+        display: flex; align-items: center; gap: 6px;
+    }
+    .vw-cat-sec-header .csh-title { font-size: 14px; font-weight: 700; }
+    .vw-cat-sec-header .csh-count { font-size: 12px; color: var(--vw-text-faint); }
+    .vw-cat-sec-header .csh-total { font-size: 15px; font-weight: 700; }
+
+    /* ── Settings page ──────────────────────────────────── */
+    .vw-settings-card {
+        background: var(--vw-card-bg); border-radius: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--vw-border);
+        margin-bottom: 10px; overflow: hidden;
+    }
+    .vw-settings-row {
+        display: flex; align-items: center; padding: 14px 16px;
+        border-bottom: 1px solid var(--vw-border-light); gap: 12px;
+    }
+    .vw-settings-row:last-child { border-bottom: none; }
+    .vw-settings-icon {
+        width: 40px; height: 40px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px; flex-shrink: 0;
+    }
+    .vw-settings-info { flex: 1; min-width: 0; }
+    .vw-settings-title { font-size: 14px; font-weight: 600; }
+    .vw-settings-sub { font-size: 12px; color: var(--vw-text-faint); margin-top: 1px; }
+    .vw-settings-right { flex-shrink: 0; text-align: right; }
+    .vw-settings-value { font-size: 15px; font-weight: 700; }
+    .vw-settings-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    }
+    .vw-badge-ok { background: #d1fae5; color: #059669; }
+    .vw-badge-warn { background: #fef3c7; color: #92400e; }
+    .vw-badge-off { background: #f3f4f6; color: #6b7280; }
+
+    /* Income hero */
+    .vw-income-hero {
+        background: var(--vw-card-bg); border-radius: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--vw-border);
+        padding: 16px; margin-bottom: 10px;
+    }
+    .vw-income-bar {
+        display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;
+    }
+    .vw-income-legend { display: flex; gap: 16px; }
+    .vw-income-legend .il-item {
+        display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--vw-text-muted);
+    }
+    .vw-income-legend .il-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    /* DB stats pills */
+    .vw-db-stats { display: flex; gap: 6px; margin-bottom: 10px; }
+    .vw-db-pill {
+        flex: 1; padding: 10px 8px; border-radius: 12px; text-align: center;
+        background: var(--vw-card-bg); border: 1px solid var(--vw-border);
+    }
+    .vw-db-pill .dp-label {
+        font-size: 9px; color: var(--vw-text-faint); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .vw-db-pill .dp-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
+
+    /* AI suggestion card */
+    .vw-ai-suggest {
+        background: linear-gradient(135deg, #fefce8, #fef9c3);
+        border: 1px solid #fde68a; border-radius: 16px;
+        padding: 14px 16px; margin-bottom: 10px;
+    }
+    .vw-ai-suggest .suggest-header {
+        display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+    }
+    .vw-ai-suggest .suggest-title { font-size: 13px; font-weight: 700; color: #92400e; }
+    .vw-ai-suggest .suggest-body { font-size: 12px; color: #78350f; line-height: 1.5; }
+
     /* V5 Mobile responsive additions */
     @media (max-width: 768px) {
         .vw-hero-v5 { padding: 16px; border-radius: 16px; }
@@ -854,6 +1091,11 @@ def inject_css():
         .vw-plan-hero-v2 .ph-savings-amount { font-size: clamp(1.5rem, 7vw, 2rem); }
         .vw-plan-waterfall .wf-amount { font-size: 12px; }
         .vw-plan-proj-pill .pp-value { font-size: 15px; }
+        .vw-txn-summary .ts-total { font-size: 18px; }
+        .vw-txn-stat-pill .tsp-value { font-size: 13px; }
+        .vw-txn-row-v2 .txn-icon-v2 { width: 36px; height: 36px; font-size: 16px; }
+        .vw-txn-row-v2 .txn-name-v2 { font-size: 13px; }
+        .vw-txn-row-v2 .txn-amount-v2 { font-size: 14px; }
     }
 </style>""", unsafe_allow_html=True)
 

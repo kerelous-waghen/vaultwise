@@ -457,31 +457,11 @@ def _handle_claude_qa(token: str, chat_id: str, user_message: str, from_name: st
 
 
 def _handle_status_command(token, chat_id):
-    """Show current week's upload progress."""
-    conn = database.get_connection(DB_PATH)
-    week_start = database.get_current_week_start()
-    database.init_weekly_cycle(conn, week_start)
-    status = database.get_weekly_status(conn, week_start)
-
-    lines = [f"<b>Week of {week_start} \u2014 Upload Status</b>\n"]
-    for acct_id in database.WEEKLY_ACCOUNTS:
-        info = status.get(acct_id, {"uploaded": False, "uploaded_ts": None})
-        label = ACCOUNT_LABELS.get(acct_id, acct_id)
-        if info["uploaded"]:
-            ts = info["uploaded_ts"][:16] if info["uploaded_ts"] else ""
-            lines.append(f"\u2705 {label}  ({ts})")
-        else:
-            lines.append(f"\u23f3 {label}  \u2014 not yet uploaded")
-
-    done = sum(1 for i in status.values() if i.get("uploaded"))
-    total = len(database.WEEKLY_ACCOUNTS)
-    lines.append(f"\n{done}/{total} complete")
-
-    if done == total:
-        lines.append("\nAll done! Report was already sent.")
-
-    send_message(token, chat_id, "\n".join(lines))
-    conn.close()
+    """Upload reminders retired — data syncs via Monarch."""
+    send_message(token, chat_id,
+        "Upload tracking is retired \u2014 your accounts now sync automatically via Monarch.\n\n"
+        "Use /report to generate a spending report anytime."
+    )
 
 
 def _handle_report_command(token, chat_id):
@@ -496,85 +476,33 @@ def _handle_help_command(token, chat_id):
     """Send help text."""
     send_message(token, chat_id,
         "<b>Commands:</b>\n"
-        "/status \u2014 Weekly upload progress\n"
-        "/report \u2014 Force generate weekly report\n"
-        "/reminder \u2014 Turn upload reminders on/off\n"
+        "/report \u2014 Generate weekly spending report\n"
         "/help \u2014 This message\n\n"
-        "<b>To upload:</b> Just send a PDF or CSV file from Chase.\n\n"
         "<b>Ask anything:</b> Type a question about your finances "
-        "and I'll answer using your actual spending data."
+        "and I'll answer using your actual spending data.\n\n"
+        "<i>Accounts sync automatically via Monarch.</i>"
     )
 
 
 def _handle_reminder_command(token, chat_id):
-    """Show reminder toggle with inline keyboard button."""
-    conn = database.get_connection(DB_PATH)
-    enabled = database.get_setting(conn, "weekly_reminder_enabled", "true") == "true"
-    conn.close()
-
-    status_text = "ON \u2705" if enabled else "OFF \U0001f515"
-    button_text = "Turn OFF \U0001f515" if enabled else "Turn ON \u2705"
-
-    keyboard = {
-        "inline_keyboard": [[
-            {"text": button_text, "callback_data": "reminder_toggle"}
-        ]]
-    }
-
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": f"<b>Weekly upload reminders: {status_text}</b>\n\n"
-                        f"When ON, you'll get daily reminders until all statements are uploaded.",
-                "parse_mode": "HTML",
-                "reply_markup": keyboard,
-            },
-            timeout=30,
-        )
-    except Exception as e:
-        print(f"Failed to send reminder command: {e}")
+    """Upload reminders retired — data syncs via Monarch."""
+    send_message(token, chat_id,
+        "Upload reminders are disabled \u2014 your accounts now sync automatically via Monarch.\n\n"
+        "No more manual uploads needed!"
+    )
 
 
 def _handle_reminder_callback(token, callback_query):
-    """Toggle reminder setting and update the inline button."""
-    chat_id = str(callback_query["message"]["chat"]["id"])
-    message_id = callback_query["message"]["message_id"]
+    """Upload reminders retired — no-op for old inline buttons."""
     callback_id = callback_query["id"]
-
-    conn = database.get_connection(DB_PATH)
-    current = database.get_setting(conn, "weekly_reminder_enabled", "true")
-    new_value = "false" if current == "true" else "true"
-    database.set_setting(conn, "weekly_reminder_enabled", new_value)
-    conn.close()
-
-    enabled = new_value == "true"
-    status_text = "ON \u2705" if enabled else "OFF \U0001f515"
-    button_text = "Turn OFF \U0001f515" if enabled else "Turn ON \u2705"
-
-    keyboard = {
-        "inline_keyboard": [[
-            {"text": button_text, "callback_data": "reminder_toggle"}
-        ]]
-    }
-
-    # Update the message in-place
     try:
         requests.post(
-            f"https://api.telegram.org/bot{token}/editMessageText",
-            json={
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": f"<b>Weekly upload reminders: {status_text}</b>\n\n"
-                        f"When ON, you'll get daily reminders until all statements are uploaded.",
-                "parse_mode": "HTML",
-                "reply_markup": keyboard,
-            },
+            f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+            json={"callback_query_id": callback_id, "text": "Upload reminders are retired — data syncs via Monarch."},
             timeout=30,
         )
-    except Exception as e:
-        print(f"Failed to update reminder message: {e}")
+    except Exception:
+        pass
 
     # Dismiss the loading spinner
     try:
@@ -600,9 +528,8 @@ def _try_autodetect_maggie(token, chat_id, from_name, message_text):
         send_message(token, chat_id,
             f"<b>Welcome {from_name}!</b> \U0001f389\n\n"
             f"I've registered your chat. You'll receive:\n"
-            f"\u2022 Weekly upload reminders\n"
             f"\u2022 Weekly spending reports\n\n"
-            f"Send me your statement CSV anytime!"
+            f"Accounts sync automatically via Monarch."
         )
         print(f"Auto-detected secondary user's chat ID: {chat_id}")
         conn.close()

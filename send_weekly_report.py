@@ -66,41 +66,15 @@ def main():
     # Format the report (data-driven, no Claude needed)
     summary_text = format_weekly_report_html(report_data)
 
-    # Generate charts (focused: weekly spending, monthly trend, month progress)
-    print("📊 Generating charts...")
+    # Generate single dashboard chart
+    print("📊 Generating dashboard chart...")
     charts = []
     try:
-        # Weekly spending (flex only — excludes transfers AND fixed bills)
-        from shared.filters import get_fixed_categories, get_excluded_categories
-        _chart_excl = get_excluded_categories(conn) | get_fixed_categories(conn)
-        this_week = database.get_weekly_spending(conn, exclude_categories=_chart_excl)
-        if this_week.get("categories"):
-            charts.append((
-                chart_generator.generate_weekly_spending_chart(this_week),
-                "This Week's Spending by Category"
-            ))
-
-        # Monthly trend
-        trend = database.get_spending_trend(conn, months=6)
-        if trend:
-            charts.append((
-                chart_generator.generate_monthly_trend_chart(trend),
-                "Monthly Spending Trend"
-            ))
-
-        # Month progress bar (budget consumption + savings status)
         charts.append((
-            chart_generator.generate_month_progress_chart(
-                disc_budget=report_data.get("disc_budget", 0),
-                disc_spent=report_data.get("txn_discretionary", 0),
-                saved=report_data.get("saved", 0),
-                target=report_data.get("savings_target", 2000),
-                weekly_breakdown=report_data.get("weekly_breakdown"),
-            ),
-            "Month at a Glance"
+            chart_generator.generate_report_dashboard(report_data),
+            "Weekly Report Dashboard"
         ))
-
-        print(f"   Generated {len(charts)} charts")
+        print("   Generated dashboard chart")
     except Exception as e:
         print(f"⚠️  Chart generation failed: {e}")
 

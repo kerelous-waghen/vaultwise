@@ -149,13 +149,17 @@ class TelegramReporter:
         return success
 
 
+# ═══════════════════════════════════════════════════════════════════
+# REPORT FORMATTING — Home-tab-inspired, savings-first
+# ═══════════════════════════════════════════════════════════════════
+
 def format_weekly_report_html(report_data: dict, **_kwargs) -> str:
-    """Savings-first, grandma-friendly Telegram report.
+    """Home-tab-inspired Telegram report: savings-first, root-cause-driven.
 
     Dynamic by week-of-month:
-      - start (day 1-7):   Budget plan, last month's lessons
-      - middle (day 8-21): Progress tracking, course corrections
-      - end (day 22+):     Final scorecard, wins & lessons
+      - start (day 1-7):   Budget plan + last month's lessons
+      - middle (day 8-21): Progress tracking + course corrections
+      - end (day 22+):     Final scorecard + wins + 6-month trend
     """
     d = report_data
     from datetime import date
@@ -178,93 +182,97 @@ def format_weekly_report_html(report_data: dict, **_kwargs) -> str:
     days_left = d.get("days_left", 0)
     days_in_month = d.get("days_in_month", 30)
     daily = d.get("daily_budget", 0)
+    gap = saved - target
 
     lines = []
 
     # ── HEADER ────────────────────────────────────────────────────
-    lines.append(f"<b>{month_label} {year} — Week {week_num} of {weeks_in_month}</b>")
+    header_sub = f"Week {week_num} of {weeks_in_month}" if phase != "end" else "Final Score"
+    lines.append("\u2501" * 26)
+    lines.append(f"  <b>{month_label} {year} \u00b7 {header_sub}</b>")
+    lines.append("\u2501" * 26)
     lines.append("")
 
-    # ── SCOREBOARD (always shown — the core mental model) ─────────
-    lines.append(f"<b>SAVINGS GOAL: ${target:,}/mo</b>")
-    lines.append("")
-    lines.append(f"  Income:         ${income:,.0f}")
-    lines.append(f"  Fixed bills:    ${fixed:,.0f}")
-    lines.append(f"  Savings goal:   ${target:,.0f}")
-    lines.append(f"                  ────────")
-    lines.append(f"  Spending money: <b>${disc_budget:,.0f}</b>")
-    lines.append("")
-
-    # Progress bar (10 chars wide)
-    if disc_budget > 0:
-        pct_used = min(disc_spent / disc_budget, 2.0)
-        filled = min(int(pct_used * 10), 10)
-        bar = "█" * filled + "░" * (10 - filled)
-        pct_label = f"{pct_used * 100:.0f}%"
+    # ── SAVINGS HERO or START PLAN ────────────────────────────────
+    if phase == "start":
+        _format_start_phase(lines, d, daily, days_in_month, income, fixed, target)
     else:
-        bar = "█" * 10
-        pct_label = "OVER"
+        _format_savings_hero(lines, d, saved, target, gap, income, fixed,
+                             disc_spent, disc_budget, daily, days_left)
 
-    if disc_spent <= disc_budget:
-        remaining = disc_budget - disc_spent
-        lines.append(f"  Flex spent: ${disc_spent:,.0f}  [{bar}] {pct_label}")
-        lines.append(f"  Left:  <b>${remaining:,.0f}</b>")
-        if daily > 0 and days_left > 0:
-            lines.append(f"  = <b>${daily:,.0f}/day</b> for {days_left} days")
-    else:
-        over_by = disc_spent - disc_budget
-        lines.append(f"  Flex spent: ${disc_spent:,.0f}  [{bar}] {pct_label}")
-        lines.append(f"  <b>${over_by:,.0f} OVER BUDGET</b>")
-        # Show realistic savings at current pace
-        realistic_saved = income - fixed - disc_spent
-        if realistic_saved > 0:
-            lines.append(f"  At current pace: saving ${realistic_saved:,.0f}/mo")
-        else:
-            lines.append(f"  At current pace: ${abs(realistic_saved):,.0f}/mo in the red")
-        if days_left > 0:
-            lines.append(f"  Freeze spending for {days_left} day{'s' if days_left != 1 else ''}")
-    lines.append("")
-
-    # ── WEEK-BY-WEEK (middle + end phases) ────────────────────────
+    # ── WEEK BY WEEK (middle + end) ──────────────────────────────
     weekly_breakdown = d.get("weekly_breakdown", [])
     if phase in ("middle", "end") and weekly_breakdown:
-        lines.append("<b>WEEK BY WEEK</b>")
+        lines.append("\u2500" * 26)
+        lines.append("")
+        lines.append("\U0001f4c5 <b>WEEK BY WEEK</b>")
         cumulative = 0
         for wk in weekly_breakdown:
-            wk_total = wk.get("total", 0)
+            wk_total = abs(wk.get("total", 0))
             cumulative += wk_total
             wk_start = wk.get("start", "")
             wk_end = wk.get("end", "")
-            # Format dates as "Mar 1-7"
             try:
                 s = date.fromisoformat(wk_start)
                 e = date.fromisoformat(wk_end)
                 date_label = f"{month_name[s.month][:3]} {s.day}-{e.day}"
             except (ValueError, IndexError):
                 date_label = f"Wk {wk['week_num']}"
-
-            marker = "  ◀" if wk["week_num"] == week_num else ""
-            lines.append(f"  Wk {wk['week_num']} ({date_label}): ${wk_total:,.0f}{marker}")
-
-        lines.append(f"  ─────────────────────")
-        lines.append(f"  Total: <b>${cumulative:,.0f}</b> of ${disc_budget:,.0f} budget")
+            marker = "  \u25c0 you are here" if wk["week_num"] == week_num and phase != "end" else ""
+            lines.append(f"  W{wk['week_num']} ({date_label}):  ${wk_total:,.0f}{marker}")
+        lines.append(f"  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+        lines.append(f"  ${cumulative:,.0f} of ${disc_budget:,.0f} budget")
         lines.append("")
 
-    # ── PHASE-SPECIFIC CONTENT ────────────────────────────────────
-    if phase == "start":
-        _format_start_phase(lines, d, daily, days_in_month)
-    elif phase == "middle":
+    # ── CATEGORY DEVIATIONS (the root cause) ─────────────────────
+    over_avg = d.get("over_avg", [])
+    under_avg = d.get("under_avg", [])
+    if over_avg or under_avg:
+        lines.append("\u2500" * 26)
+        lines.append("")
+        if over_avg:
+            lines.append("\U0001f53a <b>OVER AVERAGE</b> (the damage)")
+            for c in over_avg:
+                lines.append(f"  \u2022 {c['category']}  +${c['dev']:,.0f}  (${c['spent']:,.0f} vs ${c['avg']:,.0f} avg)")
+            lines.append("")
+        if under_avg:
+            lines.append("\U0001f53b <b>UNDER AVERAGE</b> (bright spots)")
+            for c in under_avg:
+                lines.append(f"  \u2022 {c['category']}  \u2212${abs(c['dev']):,.0f}  (${c['spent']:,.0f} vs ${c['avg']:,.0f} avg)")
+            lines.append("")
+
+    # ── THIS WEEK'S ACTIVITY (middle phase) ──────────────────────
+    if phase == "middle":
         _format_middle_phase(lines, d)
-    else:
+
+    # ── HEAVIEST WEEK (middle + end) ─────────────────────────────
+    hw = d.get("heaviest_week")
+    if hw and phase in ("middle", "end") and disc_spent > 0:
+        hw_pct = hw["total"] / disc_spent * 100
+        driver_str = " \u00b7 ".join(
+            f"{dr['category']} ${dr['total']:,.0f}" for dr in hw.get("drivers", [])
+        )
+        lines.append(f"\u26a0\ufe0f Heaviest week: W{hw['week_num']} \u2014 ${hw['total']:,.0f} ({hw_pct:.0f}% of total flex)")
+        if driver_str:
+            lines.append(f"  Driven by: {driver_str}")
+        lines.append("")
+
+    # ── END PHASE: WINS + 6-MONTH TREND ──────────────────────────
+    if phase == "end":
         _format_end_phase(lines, d, saved, target)
 
-    # ── ACTION ITEM (always — max 2 sentences) ───────────────────
+    # ── NEXT STEP (always) ───────────────────────────────────────
+    lines.append("\u2500" * 26)
+    lines.append("")
     lines.append("<b>NEXT STEP</b>")
     if saved >= target:
         lines.append(f"On track! Keep daily spending under ${daily:,.0f}.")
     elif saved > 0:
-        gap = target - saved
-        lines.append(f"${gap:,.0f} short of target. Cut ${gap / max(days_left, 1):,.0f}/day to hit it.")
+        short = target - saved
+        lines.append(f"${short:,.0f} short of target. Cut ${short / max(days_left, 1):,.0f}/day to hit it.")
+        if over_avg:
+            biggest = over_avg[0]
+            lines.append(f"\u2192 {biggest['category']} +${biggest['dev']:,.0f} over avg \u2014 biggest lever.")
     else:
         lines.append(f"Over budget by ${abs(saved):,.0f}. Freeze all non-essential spending.")
 
@@ -274,87 +282,180 @@ def format_weekly_report_html(report_data: dict, **_kwargs) -> str:
         if "interest" in cat.lower() or "fees" in cat.lower():
             amt = abs(cat_data.get("total", 0))
             if amt > 10:
-                lines.append(f"  → {cat}: ${amt:,.0f}/mo — eliminate this first")
+                lines.append(f"  \u2192 {cat}: ${amt:,.0f}/mo \u2014 eliminate this first")
+
+    # ── BOTTOM LINE (middle + end) ───────────────────────────────
+    if phase in ("middle", "end"):
+        lines.append("")
+        over_budget = max(disc_spent - disc_budget, 0)
+        if over_budget > 0:
+            lines.append(
+                f"<b>Bottom line:</b> Flex budget was ${disc_budget:,.0f}. "
+                f"You spent ${disc_spent:,.0f} \u2014 the extra ${over_budget:,.0f} "
+                f"came directly out of your ${target:,} savings target."
+            )
+        elif saved >= target:
+            disc_left = disc_budget - disc_spent
+            lines.append(
+                f"<b>Bottom line:</b> Flex budget was ${disc_budget:,.0f}, "
+                f"you spent ${disc_spent:,.0f} \u2014 ${disc_left:,.0f} left over "
+                f"went straight to savings. On track!"
+            )
+        else:
+            lines.append(
+                f"<b>Bottom line:</b> Flex budget was ${disc_budget:,.0f}, "
+                f"you spent ${disc_spent:,.0f}. Savings at ${saved:,.0f} of ${target:,} target."
+            )
 
     return "\n".join(lines)
 
 
-def _format_start_phase(lines: list, d: dict, daily_budget: float, days_in_month: int):
-    """Week 1: set the plan, learn from last month."""
-    lines.append("<b>THE PLAN</b>")
-    lines.append(f"  Daily spending target: <b>${daily_budget:,.0f}/day</b> ({days_in_month} days)")
+def _format_savings_hero(lines: list, d: dict, saved: float, target: float,
+                          gap: float, income: float, fixed: float,
+                          disc_spent: float, disc_budget: float,
+                          daily: float, days_left: int):
+    """Savings-first hero block — the emotional anchor of the report."""
+    if gap >= 0:
+        lines.append(f"\U0001f4b0 <b>SAVED: ${saved:,.0f} \u2705</b>")
+        lines.append(f"  Target ${target:,} \u00b7 ${gap:,.0f} above goal!")
+    elif saved > 0:
+        lines.append(f"\U0001f4b0 <b>SAVINGS SHORTFALL: \u2212${abs(gap):,.0f}</b>")
+        lines.append(f"  Target ${target:,} \u00b7 Kept only ${saved:,.0f}")
+        lines.append(f"  Overspending ate ${abs(gap):,.0f} from your goal")
+    else:
+        lines.append(f"\U0001f4b0 <b>IN THE RED: \u2212${abs(saved):,.0f}</b>")
+        lines.append(f"  Spent ${abs(saved):,.0f} more than earned")
+        lines.append(f"  No savings this month")
     lines.append("")
 
+    # Math breakdown
+    lines.append(f"  Income         ${income:,.0f}")
+    lines.append(f"  Fixed bills    \u2212 ${fixed:,.0f}")
+    lines.append(f"  Flex spent     \u2212 ${disc_spent:,.0f}")
+    lines.append(f"                 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+    lines.append(f"  = Savings       <b>${saved:,.0f}</b>")
+    lines.append("")
+
+    # Progress bar
+    if disc_budget > 0:
+        pct_used = min(disc_spent / disc_budget, 2.0)
+        filled = min(int(pct_used * 10), 10)
+        bar = "\u2588" * filled + "\u2591" * (10 - filled)
+        pct_label = f"{pct_used * 100:.0f}%"
+    else:
+        bar = "\u2588" * 10
+        pct_label = "OVER"
+
+    lines.append(f"  {bar}  {pct_label} of flex budget used")
+    if disc_spent <= disc_budget:
+        remaining = disc_budget - disc_spent
+        if daily > 0 and days_left > 0:
+            lines.append(f"  ${remaining:,.0f} left \u00b7 ${daily:,.0f}/day for {days_left} days")
+        else:
+            lines.append(f"  ${remaining:,.0f} left")
+    else:
+        over_by = disc_spent - disc_budget
+        lines.append(f"  <b>${over_by:,.0f} OVER BUDGET</b>")
+    lines.append("")
+
+
+def _format_start_phase(lines: list, d: dict, daily_budget: float,
+                         days_in_month: int, income: float, fixed: float,
+                         target: float):
+    """Week 1: set the plan, learn from last month."""
+    disc_budget = income - fixed - target
+
+    lines.append("\U0001f4ca <b>THE PLAN</b>")
+    lines.append(f"  Income         ${income:,.0f}")
+    lines.append(f"  Fixed bills    \u2212 ${fixed:,.0f}")
+    lines.append(f"  Savings goal   \u2212 ${target:,.0f}")
+    lines.append(f"                 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+    lines.append(f"  Spending money  <b>${disc_budget:,.0f}</b>")
+    lines.append("")
+    lines.append(f"  That's <b>${daily_budget:,.0f}/day</b> for {days_in_month} days.")
+    lines.append("")
+
+    # Last month's lessons
     overbudget = d.get("last_month_overbudget", [])
     if overbudget:
-        lines.append("<b>LAST MONTH'S LESSONS</b>")
+        from calendar import month_name
+        from datetime import date
+        today = date.fromisoformat(d["report_date"])
+        prev_month = today.month - 1 if today.month > 1 else 12
+        prev_label = month_name[prev_month].upper()
+
+        lines.append("\u2500" * 26)
+        lines.append("")
+        lines.append(f"\U0001f4dd <b>{prev_label} LESSONS</b>")
         for item in overbudget[:3]:
-            lines.append(f"  • {item['category']} was {item['status']}")
+            status_label = "way over" if item["status"] == "over" else "elevated"
+            lines.append(f"  \u2022 {item['category']} was {status_label}")
+        lines.append("")
+        lines.append(f"\U0001f4a1 This month's focus: keep these categories")
+        lines.append(f"near their averages and you'll hit your ${target:,} target.")
         lines.append("")
 
 
 def _format_middle_phase(lines: list, d: dict):
-    """Weeks 2-3: this week's activity, categories to watch."""
+    """Weeks 2-3: this week's activity with top merchants."""
     week_spent = abs(d.get("week_spending_total", 0))
     week_count = d.get("week_txn_count", 0)
 
     if week_spent > 0:
-        lines.append(f"<b>THIS WEEK: ${week_spent:,.0f}</b> ({week_count} txns)")
+        lines.append("\u2500" * 26)
+        lines.append("")
+        lines.append(f"\U0001f4cb <b>THIS WEEK: ${week_spent:,.0f}</b> ({week_count} txns)")
         week_merchants = d.get("week_merchants", [])
         if week_merchants:
             for m in week_merchants[:3]:
                 name = m.get("description", "?")
                 total = abs(m.get("total_spent", 0))
                 if total > 0:
-                    lines.append(f"  • {name}: ${total:,.0f}")
-        lines.append("")
-
-    # Categories over pace (flex only)
-    budget_statuses = d.get("budget_statuses", {})
-    fixed_cats = d.get("fixed_categories", set())
-    flagged = []
-    for cat, bs in budget_statuses.items():
-        if cat in fixed_cats:
-            continue
-        status = bs.status if hasattr(bs, "status") else bs.get("status", "")
-        if status in ("over", "elevated"):
-            flagged.append(cat)
-    if flagged:
-        lines.append("<b>OVER PACE</b>")
-        for cat in flagged[:3]:
-            lines.append(f"  • {cat}")
+                    lines.append(f"  \u2022 {name}: ${total:,.0f}")
         lines.append("")
 
 
 def _format_end_phase(lines: list, d: dict, saved: float, target: float):
-    """Week 4+: final score, wins, and lessons."""
-    lines.append("<b>MONTH SCORE</b>")
-    if saved >= target:
-        lines.append(f"  Saved ${saved:,.0f} — target ${target:,} HIT")
-    elif saved > 0:
-        lines.append(f"  Saved ${saved:,.0f} — ${target - saved:,.0f} short of ${target:,}")
-    else:
-        lines.append(f"  ${abs(saved):,.0f} over budget")
-    lines.append("")
+    """Week 4+: wins, watch list, and 6-month trend."""
+    over_avg = d.get("over_avg", [])
+    under_avg = d.get("under_avg", [])
 
-    # Big wins (flex categories only — exclude fixed bills you don't control)
-    trends = d.get("trends", {})
-    breakdown = d.get("mtd_breakdown", [])
-    fixed_cats = d.get("fixed_categories", set())
-    wins = []
-    for cat_data in sorted(breakdown, key=lambda c: abs(c.get("total", 0)), reverse=True):
-        cat = cat_data.get("category", "")
-        if cat in fixed_cats:
-            continue
-        spent = abs(cat_data.get("total", 0))
-        trend = trends.get(cat)
-        if not trend or spent < 10:
-            continue
-        pct = trend.get("pct_vs_mean", 0) if isinstance(trend, dict) else trend.pct_vs_mean
-        mean = trend.get("mean", 0) if isinstance(trend, dict) else trend.mean
-        if pct < -15 and mean > 50:
-            wins.append(f"  • {cat}: ${spent:,.0f} (saving ${mean - spent:,.0f}/mo)")
-    if wins:
-        lines.append("<b>WINS</b>")
-        lines.extend(wins[:3])
+    # Wins (categories under average)
+    if under_avg:
+        lines.append("\u2500" * 26)
+        lines.append("")
+        lines.append("\U0001f3c6 <b>WINS</b>")
+        for c in under_avg:
+            lines.append(f"  \u2022 {c['category']}: ${c['spent']:,.0f} (saved ${abs(c['dev']):,.0f} vs avg)")
+        lines.append("")
+
+    # Watch list (categories over average)
+    if over_avg:
+        lines.append("\U0001f53a <b>WATCH LIST</b>")
+        for c in over_avg:
+            lines.append(f"  \u2022 {c['category']}: ${c['spent']:,.0f} (+${c['dev']:,.0f} vs avg)")
+        lines.append("")
+
+    # 6-month savings trend
+    savings_trend = d.get("savings_trend_6m", [])
+    if savings_trend:
+        lines.append("\u2500" * 26)
+        lines.append("")
+        lines.append("\U0001f4c8 <b>6-MONTH TREND</b>")
+        from calendar import month_name
+        max_saved = max(abs(s["saved"]) for s in savings_trend) if savings_trend else 1
+        hits = 0
+        for s in savings_trend:
+            bar_len = max(int(abs(s["saved"]) / max_saved * 6), 1) if max_saved > 0 else 1
+            bar = "\u2588" * bar_len + "\u2591" * (6 - bar_len)
+            _y, _m = s["month"].split("-")
+            m_label = month_name[int(_m)][:3]
+            hit_mark = " \u2713" if s["hit"] else ""
+            is_current = s == savings_trend[-1]
+            arrow = " \u2190 this month" if is_current else ""
+            lines.append(f"  {m_label} {bar}  ${s['saved']:,.0f}{hit_mark}{arrow}")
+            if s["hit"]:
+                hits += 1
+        lines.append("")
+        lines.append(f"  Hit target: {hits} of {len(savings_trend)} months")
         lines.append("")
