@@ -9,3 +9,4 @@ apscheduler>=3.10.0
 kaleido>=0.2.1
 requests>=2.31.0
 curl_cffi>=0.7.0
+
