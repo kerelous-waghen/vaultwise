@@ -89,6 +89,10 @@ MIGRATIONS = [
         "id": "009_fix_fixed_category_types",
         "sql": None,  # Retroactively fix categories wrongly registered as flex
     },
+    {
+        "id": "010_monarch_category_truth",
+        "sql": None,  # Clear ghost categories: Monarch transactions are the sole source of truth
+    },
 ]
 
 
@@ -171,6 +175,20 @@ def run_pending(conn: sqlite3.Connection) -> list[str]:
                             (_muted,),
                         )
                     conn.commit()
+            except Exception:
+                pass
+
+        elif mid == "010_monarch_category_truth":
+            # Monarch transactions are the single source of truth for categories.
+            # Remove ghost category_definitions (curated names with 0 transactions)
+            # and ghost category_config entries (config bill names with 0 transactions).
+            try:
+                conn.execute("DELETE FROM category_definitions")
+                conn.execute("""
+                    DELETE FROM category_config
+                    WHERE name NOT IN (SELECT DISTINCT category FROM transactions)
+                """)
+                conn.commit()
             except Exception:
                 pass
 

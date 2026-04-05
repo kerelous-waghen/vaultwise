@@ -16,44 +16,31 @@ import database
 
 
 def get_active_categories(conn) -> list[str]:
-    """
-    Return the active category list. If dynamic categories have been defined
-    in the category_definitions table, use those. Otherwise fall back to config.CATEGORIES.
+    """Return active category list derived from actual transaction data.
 
-    In both cases, also include any category that exists in transaction data
-    but is missing from the list — prevents silently dropping real spending
-    when Monarch Money introduces new category names.
+    Monarch transaction categories are the single source of truth.
+    Excluded categories (transfers, CC payments, etc.) are filtered out.
     """
     from shared.filters import get_excluded_categories
     _excluded = get_excluded_categories(conn)
 
-    definitions = database.get_category_definitions(conn)
-    if definitions:
-        cats = [d["name"] for d in definitions if d["name"] not in _excluded]
-    else:
-        cats = [c for c in config.CATEGORIES if c not in _excluded]
-
-    # Include any transaction categories not yet in the list (e.g., new Monarch categories)
-    db_cats = conn.execute(
-        "SELECT DISTINCT category FROM transactions WHERE amount < 0"
+    rows = conn.execute(
+        "SELECT DISTINCT category FROM transactions WHERE amount < 0 ORDER BY category"
     ).fetchall()
-    known = set(cats) | _excluded
-    for row in db_cats:
-        if row["category"] not in known:
-            cats.append(row["category"])
-
-    return cats
+    return [r[0] for r in rows if r[0] not in _excluded]
 
 
 def get_category_hierarchy(conn) -> dict:
     """Return categories with their parent relationships (for treemap/sunburst)."""
     definitions = database.get_category_definitions(conn)
-    if not definitions:
-        return {cat: {"parent": None, "description": ""} for cat in config.CATEGORIES}
-    return {
-        d["name"]: {"parent": d["parent"], "description": d["description"] or ""}
-        for d in definitions
-    }
+    if definitions:
+        return {
+            d["name"]: {"parent": d["parent"], "description": d["description"] or ""}
+            for d in definitions
+        }
+    # Fallback: flat structure from actual transaction categories
+    cats = get_active_categories(conn)
+    return {cat: {"parent": None, "description": ""} for cat in cats}
 
 
 def get_category_stats(conn) -> dict:
