@@ -659,6 +659,10 @@ def sync_transactions(conn, force_full: bool = False) -> dict:
         result["new"] = inserted
         result["skipped"] += len(vw_transactions) - inserted
 
+    # Remap Monarch raw categories to app canonical names, then apply merchant overrides
+    database.apply_category_remap(conn)
+    database.apply_merchant_overrides(conn)
+
     # Track synced accounts
     synced_ids = set()
     for txn in all_transactions:
@@ -761,5 +765,10 @@ def force_full_resync(conn) -> dict:
     populate_category_config(conn)
     cat_count = conn.execute("SELECT COUNT(*) as c FROM category_config").fetchone()["c"]
     print(f"  Category config: {cat_count} categories auto-classified")
+
+    # Apply merchant category overrides (single source of truth)
+    fixed = database.apply_merchant_overrides(conn)
+    if fixed:
+        print(f"  Merchant overrides: {fixed} transactions recategorized")
 
     return result

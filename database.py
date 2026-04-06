@@ -1488,3 +1488,50 @@ def upsert_category_definition(conn, name: str, parent: str = None,
             sort_order = excluded.sort_order
     """, (name, parent, description, color, sort_order))
     conn.commit()
+
+
+def apply_category_remap(conn) -> int:
+    """Remap Monarch raw category names to app canonical names.
+
+    Uses config.MONARCH_CATEGORY_REMAP to rename categories in bulk.
+    Idempotent — safe to call on every sync. Returns rows updated.
+    """
+    remap = getattr(config, 'MONARCH_CATEGORY_REMAP', {})
+    if not remap:
+        return 0
+    total = 0
+    for raw_name, canonical_name in remap.items():
+        cur = conn.execute(
+            "UPDATE transactions SET category = ? WHERE category = ?",
+            (canonical_name, raw_name),
+        )
+        total += cur.rowcount
+    # Also clean up category_config: merge remapped entries
+    for raw_name, canonical_name in remap.items():
+        conn.execute("DELETE FROM category_config WHERE name = ?", (raw_name,))
+    if total:
+        conn.commit()
+    return total
+
+
+def apply_merchant_overrides(conn) -> int:
+    """Apply MERCHANT_CATEGORY_OVERRIDES to ALL transactions in the database.
+
+    This is the single source of truth for merchant→category mapping.
+    Idempotent — safe to call on every app load, after imports, etc.
+    Returns the total number of rows updated.
+    """
+    overrides = getattr(config, 'MERCHANT_CATEGORY_OVERRIDES', {})
+    if not overrides:
+        return 0
+    total = 0
+    for pattern, target_cat in overrides.items():
+        cur = conn.execute(
+            "UPDATE transactions SET category = ? "
+            "WHERE LOWER(description) LIKE ? AND category != ?",
+            (target_cat, f"%{pattern.lower()}%", target_cat),
+        )
+        total += cur.rowcount
+    if total:
+        conn.commit()
+    return total
