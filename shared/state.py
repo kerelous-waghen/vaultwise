@@ -56,7 +56,11 @@ def load_persisted_config():
 
 
 def monarch_auto_sync():
-    """Auto-sync Monarch Money on first app load per session."""
+    """Auto-sync Monarch Money if last sync was more than 30 minutes ago.
+
+    Runs on first page load per session. Checks the persisted monarch_last_sync
+    timestamp so stale data is refreshed even across app restarts.
+    """
     if "monarch_synced" not in st.session_state:
         st.session_state.monarch_synced = False
     if not st.session_state.monarch_synced:
@@ -72,15 +76,28 @@ def monarch_auto_sync():
                 enabled = "1"
 
         if enabled == "1":
-            try:
-                import monarch_sync
-                result = monarch_sync.sync_transactions(conn)
-                if result["new"] > 0:
-                    st.toast(f"Monarch: {result['new']} new transactions synced")
-                if result["errors"] and "not configured" not in result["errors"][0].lower():
-                    st.session_state.monarch_sync_error = result["errors"][0]
-            except Exception as e:
-                st.session_state.monarch_sync_error = str(e)[:120]
+            # Check cooldown: skip if synced less than 30 minutes ago
+            from datetime import datetime, timedelta
+            last_sync = database.get_setting(conn, "monarch_last_sync", "")
+            should_sync = True
+            if last_sync:
+                try:
+                    elapsed = datetime.now() - datetime.fromisoformat(last_sync)
+                    should_sync = elapsed > timedelta(minutes=30)
+                except (ValueError, TypeError):
+                    should_sync = True
+
+            if should_sync:
+                try:
+                    import monarch_sync
+                    result = monarch_sync.sync_transactions(conn)
+                    if result["new"] > 0:
+                        st.toast(f"Monarch: {result['new']} new transactions synced")
+                    if result["errors"] and "not configured" not in result["errors"][0].lower():
+                        st.session_state.monarch_sync_error = result["errors"][0]
+                except Exception as e:
+                    st.session_state.monarch_sync_error = str(e)[:120]
+
         conn.close()
         st.session_state.monarch_synced = True
 

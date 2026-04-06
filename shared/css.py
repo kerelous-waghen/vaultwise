@@ -1133,4 +1133,27 @@ def inject_dark_mode_js(enabled=False):
             .vw-forecast-row { background: #1e1b2e !important; }
             .vw-stats-grid .stat-cell { background: #22222e !important; border-color: #2a2a38 !important; }
             .vw-merchant-row .merch-bar { background: #2a2a3a !important; }
+
+    /* ── Mobile: prevent keyboard popup on selectbox dropdowns ── */
+    @media (max-width: 768px) {
+        div[data-baseweb="select"] input {
+            font-size: 16px !important;  /* prevents iOS auto-zoom */
+        }
+    }
+    div[data-baseweb="select"] input {
+        caret-color: transparent;
+    }
         </style>""", unsafe_allow_html=True)
+
+    # Inject JS to set selectbox inputs as readonly (prevents mobile keyboard)
+    st.markdown("""<script>
+    function disableSelectboxKeyboard() {
+        document.querySelectorAll('div[data-baseweb="select"] input').forEach(function(input) {
+            input.setAttribute('readonly', 'true');
+            input.setAttribute('inputmode', 'none');
+        });
+    }
+    disableSelectboxKeyboard();
+    var observer = new MutationObserver(disableSelectboxKeyboard);
+    observer.observe(document.body, {childList: true, subtree: true});
+    </script>""", unsafe_allow_html=True)
