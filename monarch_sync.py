@@ -522,9 +522,10 @@ def _transform_transaction(txn: dict, acct_mapping: dict, **_kwargs) -> dict | N
     """Transform a Monarch transaction into Vaultwise format. Returns None to skip.
 
     Uses Monarch's category name directly (no mapping).
+    Pending transactions are included and tagged so they appear immediately
+    (matching the Monarch app) and get replaced once they post.
     """
-    if txn.get("pending", False):
-        return None
+    is_pending = txn.get("pending", False)
 
     monarch_acct_id = str(txn.get("account", {}).get("id", ""))
     vw_account = acct_mapping.get(monarch_acct_id)
@@ -556,7 +557,7 @@ def _transform_transaction(txn: dict, acct_mapping: dict, **_kwargs) -> dict | N
         "account_id": vw_account,
         "statement_id": None,
         "confidence": 0.9,
-        "notes": "monarch_sync",
+        "notes": "monarch_sync|pending" if is_pending else "monarch_sync",
     }
 
 
@@ -632,6 +633,17 @@ def sync_transactions(conn, force_full: bool = False) -> dict:
     except Exception as e:
         result["errors"].append(f"API fetch error: {str(e)[:100]}")
         return result
+
+    # Remove previously-synced pending transactions for these accounts.
+    # They'll be re-inserted below — either still pending (refreshed) or now
+    # posted (replacing the old pending row with the final version).
+    vw_account_ids = list(set(acct_mapping.values()))
+    for aid in vw_account_ids:
+        conn.execute(
+            "DELETE FROM transactions WHERE notes LIKE '%pending%' AND account_id = ?",
+            (aid,),
+        )
+    conn.commit()
 
     # Transform and deduplicate against existing DB transactions
     vw_transactions = []
